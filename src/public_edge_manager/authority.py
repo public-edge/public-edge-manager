@@ -23,6 +23,11 @@ PROBE_MAX_WORKERS = max(1, int(os.getenv("PROBE_MAX_WORKERS", "8")))
 HTTP_PORT = int(os.getenv("HTTP_PORT", "8080"))
 DNS_PORT = int(os.getenv("DNS_PORT", "53"))
 NAMESERVERS = os.getenv("NAMESERVERS", "").split()
+AUTHORITY_ZONES = sorted({
+    f"{str(zone).rstrip('.').lower()}."
+    for zone in json.loads(os.getenv("AUTHORITY_ZONES_JSON", "[]"))
+    if str(zone).strip()
+}, key=len, reverse=True)
 CANDIDATES = json.loads(os.getenv("CANDIDATES_JSON", "[]"))
 SERVICE_DEFINITIONS = json.loads(os.getenv("SERVICES_JSON", "{}"))
 SERVICES = {name: definition["service"] for name, definition in SERVICE_DEFINITIONS.items()}
@@ -562,6 +567,40 @@ def rr(name, qtype, ttl, data):
     return encode_name(name) + struct.pack("!HHIH", qtype, 1, ttl, len(data)) + data
 
 
+def matching_authority_zone(name):
+    """Return the most-specific configured zone containing a DNS name."""
+    return next(
+        (zone for zone in AUTHORITY_ZONES if name == zone or name.endswith(f".{zone}")),
+        None,
+    )
+
+
+def soa_rr(zone):
+    serial = int(time.strftime("%Y%m%d") + "01")
+    data = (
+        encode_name(NAMESERVERS[0])
+        + encode_name(SOA_RNAME)
+        + struct.pack("!IIIII", serial, 60, 60, 86400, 30)
+    )
+    return rr(zone, 6, 300, data)
+
+
+def service_address_records(name, service):
+    ready = [item for item in ranked(service) if item["state"] == "ready"]
+    if not ready:
+        return []
+    best_score = ready[0]["score"]
+    records = []
+    for selected in (item for item in ready if item["score"] == best_score):
+        if selected.get("endpointType") == "HostnameTunnel":
+            records.append(rr(name, 5, 30, encode_name(selected["ip"])))
+            continue
+        address = ipaddress.ip_address(selected["ip"])
+        if address.version == 4:
+            records.append(rr(name, 1, 30, address.packed))
+    return records
+
+
 def dns_response(query):
     if len(query) < 12:
         return b""
@@ -577,30 +616,41 @@ def dns_response(query):
     qtype, _ = struct.unpack("!HH", query[offset:offset + 4])
     question = query[12:offset + 4]
     answers = []
+    authorities = []
     rcode = 0
     service = SERVICES.get(name)
-    if not service:
-        rcode = 3
-    elif qtype in (1, 255):
-        ready = [item for item in ranked(service) if item["state"] == "ready"]
-        if ready:
-            best_score = ready[0]["score"]
-            for selected in [item for item in ready if item["score"] == best_score]:
-                if selected.get("endpointType") == "HostnameTunnel":
-                    answers.append(rr(name, 5, 30, encode_name(selected["ip"])))
-                else:
-                    address = ipaddress.ip_address(selected["ip"])
-                    if address.version == 4:
-                        answers.append(rr(name, 1, 30, address.packed))
-    elif qtype == 2:
-        answers.extend(rr(name, 2, 300, encode_name(ns)) for ns in NAMESERVERS)
-    elif qtype == 6:
-        serial = int(time.strftime("%Y%m%d") + "01")
-        data = encode_name(NAMESERVERS[0]) + encode_name(SOA_RNAME) + struct.pack("!IIIII", serial, 60, 60, 86400, 30)
-        answers.append(rr(name, 6, 300, data))
-    response_flags = 0x8400 | (flags & 0x0100) | rcode
-    header = struct.pack("!HHHHHH", ident, response_flags, 1, len(answers), 0, 0)
-    return header + question + b"".join(answers)
+    zone = matching_authority_zone(name) if AUTHORITY_ZONES else None
+    authoritative = not AUTHORITY_ZONES or zone is not None
+
+    if not authoritative:
+        rcode = 5
+    elif not AUTHORITY_ZONES:
+        # Preserve the original service-name authority model for existing
+        # installations until they explicitly configure zones.
+        if not service:
+            rcode = 3
+        elif qtype in (1, 255):
+            answers.extend(service_address_records(name, service))
+        elif qtype == 2:
+            answers.extend(rr(name, 2, 300, encode_name(ns)) for ns in NAMESERVERS)
+        elif qtype == 6:
+            answers.append(soa_rr(name))
+    else:
+        name_exists = service is not None or name == zone
+        if not name_exists:
+            rcode = 3
+        elif name == zone and qtype == 2:
+            answers.extend(rr(zone, 2, 300, encode_name(ns)) for ns in NAMESERVERS)
+        elif name == zone and qtype == 6:
+            answers.append(soa_rr(zone))
+        elif service and qtype in (1, 255):
+            answers.extend(service_address_records(name, service))
+        if not answers:
+            authorities.append(soa_rr(zone))
+
+    response_flags = 0x8000 | (0x0400 if authoritative else 0) | (flags & 0x0100) | rcode
+    header = struct.pack("!HHHHHH", ident, response_flags, 1, len(answers), len(authorities), 0)
+    return header + question + b"".join(answers) + b"".join(authorities)
 
 
 class UDPHandler(socketserver.BaseRequestHandler):

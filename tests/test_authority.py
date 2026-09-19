@@ -25,6 +25,38 @@ class AuthorityTests(unittest.TestCase):
         authority.FABRIC_EVIDENCE_MODE = "Disabled"
         authority.FABRIC_REQUIRE_NODE_READY = False
         authority.FABRIC_EVIDENCE_ALLOWED_STATES = {"Ready", "Partial"}
+        authority.AUTHORITY_ZONES = []
+
+    @staticmethod
+    def dns_query(name, qtype):
+        return (
+            b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+            + authority.encode_name(name)
+            + struct.pack("!HH", qtype, 1)
+        )
+
+    @staticmethod
+    def dns_records(response):
+        _, _, qdcount, answer_count, authority_count, additional_count = struct.unpack(
+            "!HHHHHH", response[:12]
+        )
+        offset = 12
+        for _ in range(qdcount):
+            _, offset = authority.parse_name(response, offset)
+            offset += 4
+        records = []
+        for section, count in (
+            ("answer", answer_count),
+            ("authority", authority_count),
+            ("additional", additional_count),
+        ):
+            for _ in range(count):
+                name, offset = authority.parse_name(response, offset)
+                qtype, qclass, ttl, length = struct.unpack("!HHIH", response[offset:offset + 10])
+                offset += 10
+                records.append((section, name, qtype, qclass, ttl, response[offset:offset + length]))
+                offset += length
+        return records
 
     @staticmethod
     def assessment(node="edge-node", state="Ready", valid_until="2099-01-01T00:00:00Z",
@@ -208,9 +240,57 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(len(submitted) - 1, 20)
 
     def test_dns_fails_closed_without_ready_edge(self):
-        query = b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + authority.encode_name("app.example.com.") + struct.pack("!HH", 1, 1)
+        query = self.dns_query("app.example.com.", 1)
         response = authority.dns_response(query)
         self.assertEqual(struct.unpack("!H", response[6:8])[0], 0)
+
+    def test_zone_apex_answers_ns_and_soa(self):
+        authority.AUTHORITY_ZONES = ["edge.example."]
+        with mock.patch.object(authority, "NAMESERVERS", ["ns1.edge.example.", "ns2.edge.example."]), \
+             mock.patch.object(authority, "SOA_RNAME", "hostmaster.edge.example."):
+            ns_response = authority.dns_response(self.dns_query("edge.example.", 2))
+            soa_response = authority.dns_response(self.dns_query("edge.example.", 6))
+        self.assertEqual(struct.unpack("!H", ns_response[6:8])[0], 2)
+        self.assertEqual(
+            [(section, name, qtype) for section, name, qtype, *_ in self.dns_records(ns_response)],
+            [("answer", "edge.example.", 2), ("answer", "edge.example.", 2)],
+        )
+        self.assertEqual(struct.unpack("!H", soa_response[6:8])[0], 1)
+        self.assertEqual(self.dns_records(soa_response)[0][1:3], ("edge.example.", 6))
+
+    def test_unknown_name_in_zone_returns_nxdomain_with_soa(self):
+        authority.AUTHORITY_ZONES = ["edge.example."]
+        with mock.patch.object(authority, "NAMESERVERS", ["ns1.edge.example."]):
+            response = authority.dns_response(self.dns_query("missing.edge.example.", 1))
+        _, flags, _, answer_count, authority_count, _ = struct.unpack("!HHHHHH", response[:12])
+        self.assertEqual(flags & 0x000F, 3)
+        self.assertEqual(answer_count, 0)
+        self.assertEqual(authority_count, 1)
+        self.assertEqual(self.dns_records(response)[0][0:3], ("authority", "edge.example.", 6))
+
+    def test_known_name_without_requested_type_returns_nodata_with_soa(self):
+        authority.AUTHORITY_ZONES = ["example.com."]
+        with mock.patch.object(authority, "NAMESERVERS", ["ns1.example.com."]):
+            response = authority.dns_response(self.dns_query("app.example.com.", 28))
+        _, flags, _, answer_count, authority_count, _ = struct.unpack("!HHHHHH", response[:12])
+        self.assertEqual(flags & 0x000F, 0)
+        self.assertEqual(answer_count, 0)
+        self.assertEqual(authority_count, 1)
+
+    def test_name_outside_configured_zones_is_refused(self):
+        authority.AUTHORITY_ZONES = ["edge.example."]
+        response = authority.dns_response(self.dns_query("app.example.com.", 1))
+        _, flags, _, answer_count, authority_count, _ = struct.unpack("!HHHHHH", response[:12])
+        self.assertEqual(flags & 0x000F, 5)
+        self.assertEqual(flags & 0x0400, 0)
+        self.assertEqual((answer_count, authority_count), (0, 0))
+
+    def test_empty_zone_list_preserves_legacy_unknown_name_response(self):
+        response = authority.dns_response(self.dns_query("missing.example.com.", 1))
+        _, flags, _, _, authority_count, _ = struct.unpack("!HHHHHH", response[:12])
+        self.assertEqual(flags & 0x000F, 3)
+        self.assertNotEqual(flags & 0x0400, 0)
+        self.assertEqual(authority_count, 0)
 
     def test_explicit_statuses_reject_redirect_loop(self):
         authority.SERVICE_DEFINITIONS = {

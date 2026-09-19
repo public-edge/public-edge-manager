@@ -44,6 +44,9 @@ probe:
 
 dns:
   soaRname: hostmaster.invalid.
+  # Optional delegated zones. When set, apex NS/SOA and RFC-compatible negative
+  # answers are served only for names inside these zones.
+  zones: []
 
 candidateSelection:
   capacityWeight: 10
