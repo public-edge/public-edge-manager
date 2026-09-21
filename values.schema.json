@@ -32,7 +32,32 @@
     "dns": {
       "type": "object",
       "required": ["soaRname"],
-      "properties": { "soaRname": { "type": "string", "pattern": "\\.$" } }
+      "properties": {
+        "soaRname": { "type": "string", "pattern": "\\.$" },
+        "zones": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 2, "pattern": "\\.$" }
+        },
+        "externalRecords": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "value", "externalCDN"],
+              "properties": {
+                "type": {"enum": ["A", "AAAA", "CNAME"]},
+                "value": {"type": "string", "minLength": 1},
+                "externalCDN": {"const": true},
+                "provider": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        }
+      }
     },
     "probe": {
       "type": "object",
