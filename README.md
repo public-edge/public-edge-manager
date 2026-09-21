@@ -90,6 +90,13 @@ domain or infrastructure.
 
 ## Exposure and security model
 
+Production authorities should set `workload.dnsCandidateLabel` and give that
+label only to Nodes present in `authorityNodes` whose public IP has passed an
+independent UDP and TCP port 53 probe. The scheduler requires both the exact
+Node name and the admission label. A local `/healthz` response is process
+health, not proof that the public Internet can reach the authority; keep the
+external probe running after admission and withdraw the label on failure.
+
 The chart creates two Services:
 
 - `public-edge-manager-dns` carries only authoritative UDP/TCP 53 and may be

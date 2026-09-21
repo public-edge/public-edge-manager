@@ -22,6 +22,8 @@
       "type": "object",
       "properties": {
         "hostNetwork": { "type": "boolean" },
+        "dnsCandidateLabel": { "type": "string" },
+        "dnsCandidateValue": { "type": "string", "minLength": 1 },
         "dnsPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "httpPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "containerSecurityContext": { "type": "object" }
