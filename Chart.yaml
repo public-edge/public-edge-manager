@@ -7,8 +7,8 @@ appVersion: "0.5.1"
 keywords: [public-edge, dns, external-dns, gateway-api, cilium, geo-routing]
 maintainers:
   - name: RE8CH Platform
-home: https://github.com/re8ch/public-edge-manager
-sources: [https://github.com/re8ch/public-edge-manager]
+home: https://github.com/public-edge/public-edge-manager
+sources: [https://github.com/public-edge/public-edge-manager]
 annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/category: networking
@@ -23,12 +23,12 @@ annotations:
       description: Expose probe.maxWorkers for installations with different service counts and CPU budgets.
   artifacthub.io/links: |
     - name: source
-      url: https://github.com/re8ch/public-edge-manager
+      url: https://github.com/public-edge/public-edge-manager
     - name: support
-      url: https://github.com/re8ch/public-edge-manager/issues
+      url: https://github.com/public-edge/public-edge-manager/issues
   artifacthub.io/images: |
     - name: public-edge-manager
-      image: ghcr.io/re8ch/public-edge-manager:0.5.1
+      image: ghcr.io/public-edge/public-edge-manager:0.5.1
       platforms:
         - linux/amd64
         - linux/arm64

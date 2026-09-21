@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/re8ch/public-edge-manager
+  repository: ghcr.io/public-edge/public-edge-manager
   tag: "0.5.1"
   digest: ""
   pullPolicy: IfNotPresent
