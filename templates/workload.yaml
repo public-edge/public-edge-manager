@@ -6,7 +6,10 @@ spec:
   selector: {matchLabels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}}}
   updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 1}}
   template:
-    metadata: {labels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}}}
+    metadata:
+      labels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ include "public-edge-manager.name" . }}
       securityContext:
