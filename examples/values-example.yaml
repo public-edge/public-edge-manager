@@ -3,6 +3,7 @@ enabled: true
 nameservers: [ns1.edge.example., ns2.edge.example.]
 dns:
   soaRname: hostmaster.edge.example.
+  zones: [edge.example.]
 
 authorityNodes:
   edge-authority-a: {bindAddress: 192.0.2.53, area: eu, region: eu-west}

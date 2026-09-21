@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/re8ch/public-edge-manager
-  tag: "0.5.1"
+  tag: "0.5.2"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -48,6 +48,11 @@ probe:
 
 dns:
   soaRname: hostmaster.invalid.
+  # Optional delegated zones. When set, apex NS/SOA and RFC-compatible negative
+  # answers are served only for names inside these zones.
+  zones: []
+  # Static records delegated to a third-party CDN; never health-retargeted.
+  externalRecords: {}
 
 candidateSelection:
   capacityWeight: 10

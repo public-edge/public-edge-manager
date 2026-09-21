@@ -23,6 +23,37 @@ does not require code or ConfigMaps from a separate private repository.
 6. Optional named publication adapters update provider-scoped ExternalDNS-only
    Ingresses with the selected edge.
 
+### Authoritative DNS zones
+
+Set `dns.zones` to every zone delegated to Public Edge Manager. The server then
+answers NS and SOA queries at each zone apex, returns NXDOMAIN only for unknown
+names inside a configured zone, and includes the zone SOA in NXDOMAIN and NODATA
+responses so recursive resolvers can apply negative caching correctly. Queries
+outside the configured zones are refused.
+
+```yaml
+nameservers: [ns1.edge.example., ns2.edge.example.]
+dns:
+  zones: [edge.example.]
+  soaRname: hostmaster.edge.example.
+```
+
+An empty `dns.zones` list retains the legacy service-name authority behavior for
+backwards compatibility. New delegated DNS installations should configure zones
+explicitly.
+
+Names handled by an external CDN can be declared as static records inside a
+delegated zone. They are returned by this authority but are not health-ranked or
+retargeted by PublicEdge; changing the CDN target remains a GitOps change.
+
+```yaml
+dns:
+  zones: [edge.example.]
+  externalRecords:
+    assets.edge.example.:
+      - {type: CNAME, value: customer.cdn.example., externalCDN: true, provider: example-cdn}
+```
+
 Public Edge Manager does not configure routers, NAT, BGP, certificates, or
 application Gateways. Those remain explicit operator-owned infrastructure.
 
