@@ -2,6 +2,7 @@
 import os
 
 import struct
+import time
 import unittest
 from unittest import mock
 from public_edge_manager import authority
@@ -153,6 +154,29 @@ class AuthorityTests(unittest.TestCase):
         finally:
             authority.kubernetes_get = original
 
+    def test_empty_inventory_removes_stale_candidate_and_health(self):
+        authority.CANDIDATES[:] = [{"id": "us-edge-50"}]
+        authority.HEALTH["app"]["us-edge-50"] = {"ready": True}
+        with mock.patch.object(authority, "KUBERNETES_API", "kubernetes"), \
+             mock.patch.object(authority, "kubernetes_get", return_value={"items": []}):
+            authority.refresh_candidates()
+        self.assertEqual(authority.CANDIDATES, [])
+        self.assertEqual(authority.HEALTH["app"], {})
+
+    def test_inventory_failure_fails_closed(self):
+        authority.CANDIDATES[:] = [{"id": "us-edge-50"}]
+        with mock.patch.object(authority, "KUBERNETES_API", "kubernetes"), \
+             mock.patch.object(authority, "kubernetes_get", return_value=None):
+            authority.refresh_candidates()
+        self.assertEqual(authority.CANDIDATES, [])
+
+    def test_stale_service_probe_cannot_be_ranked_ready(self):
+        authority.CANDIDATES[:] = [{"id": "edge-a", "region": "test", "ip": "192.0.2.10",
+                                   "probes": {"app": "https://app.example.com/"}}]
+        authority.HEALTH["app"]["edge-a"] = {"ready": True, "observedAt": 1}
+        self.assertEqual(authority.ranked("app")[0]["state"], "unavailable")
+        self.assertEqual(authority.ranked("app")[0]["reason"], "ServiceProbeStale")
+
     def test_public_edge_builds_service_probe(self):
         payload = {"items": [{
             "metadata": {"name": "edge-a"},
@@ -231,7 +255,7 @@ class AuthorityTests(unittest.TestCase):
             {"id": "small-edge", "region": "region-a", "area": "CN", "ip": "192.0.2.1", "capacityMbps": 100, "priority": 0, "probes": {"app": "https://app.example.com/"}},
             {"id": "large-edge", "region": "region-b", "area": "CN", "ip": "192.0.2.2", "capacityMbps": 1000, "priority": 0, "probes": {"app": "https://app.example.com/"}},
         ]
-        authority.HEALTH["app"] = {name: {"ready": True, "latencyMs": 10} for name in ("small-edge", "large-edge")}
+        authority.HEALTH["app"] = {name: {"ready": True, "latencyMs": 10, "observedAt": int(time.time())} for name in ("small-edge", "large-edge")}
         try:
             self.assertEqual(authority.ranked("app")[0]["id"], "large-edge")
         finally:
@@ -244,7 +268,7 @@ class AuthorityTests(unittest.TestCase):
             {"id": "us-relay", "region": "los-angeles", "area": "US", "ip": "192.0.2.3", "capacityMbps": 100, "priority": 0, "forwarding": {"mode": "RegionalRelay", "originArea": "CN"}, "probes": {"app": "https://app.example.com/"}},
             {"id": "remote-origin", "region": "region-b", "area": "CN", "ip": "192.0.2.2", "capacityMbps": 1000, "priority": 0, "probes": {"app": "https://app.example.com/"}},
         ]
-        authority.HEALTH["app"] = {name: {"ready": True, "latencyMs": 10} for name in ("us-relay", "remote-origin")}
+        authority.HEALTH["app"] = {name: {"ready": True, "latencyMs": 10, "observedAt": int(time.time())} for name in ("us-relay", "remote-origin")}
         try:
             self.assertEqual(authority.ranked("app")[0]["id"], "us-relay")
         finally:

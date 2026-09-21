@@ -28,6 +28,11 @@ spec:
                   - key: kubernetes.io/hostname
                     operator: In
                     values: {{ keys .Values.authorityNodes | toJson }}
+                  {{- if .Values.workload.dnsCandidateLabel }}
+                  - key: {{ .Values.workload.dnsCandidateLabel }}
+                    operator: In
+                    values: [{{ .Values.workload.dnsCandidateValue | quote }}]
+                  {{- end }}
       {{- end }}
       {{- with .Values.workload.tolerations }}
       tolerations: {{ . | toYaml | nindent 8 }}

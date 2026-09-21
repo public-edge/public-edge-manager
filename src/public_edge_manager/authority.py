@@ -127,8 +127,8 @@ def readiness_gate_ready(service):
 
 def candidates_from_public_edges():
     payload = kubernetes_get(f"/apis/{API_GROUP}/v1alpha1/publicedges")
-    if not payload:
-        return []
+    if payload is None:
+        return None
     candidates = []
     for item in payload.get("items", []):
         spec = item.get("spec", {})
@@ -145,6 +145,7 @@ def candidates_from_public_edges():
             probes[service] = f"https://{hostname.rstrip('.')}{definition.get('probePath', '/')}"
         candidates.append({
             "id": item["metadata"]["name"],
+            "generation": item["metadata"].get("generation", 0),
             "nodeName": spec.get("nodeName", ""),
             "region": spec["region"],
             "area": spec.get("area", spec["region"]),
@@ -162,12 +163,18 @@ def candidates_from_public_edges():
 
 
 def refresh_candidates():
+    if not KUBERNETES_API:
+        return
     discovered = candidates_from_public_edges()
-    if discovered:
-        with LOCK:
-            CANDIDATES[:] = discovered
-            for service in SERVICES.values():
-                HEALTH.setdefault(service, {})
+    # An empty list (or an API failure) must never retain a previously selected
+    # public endpoint. Keep static candidates only in the explicit non-K8s mode.
+    with LOCK:
+        CANDIDATES[:] = discovered or []
+        active = {item["id"] for item in CANDIDATES}
+        for service in SERVICES.values():
+            HEALTH.setdefault(service, {})
+            HEALTH[service] = {edge: result for edge, result in HEALTH[service].items()
+                               if edge in active}
 
 
 def refresh_fabric_assessments():
@@ -299,6 +306,12 @@ def accepted_probe_status(service, status):
     return 200 <= status < 400 or status in (401, 403)
 
 
+def probe_fresh(observed, now=None):
+    age = (time.time() if now is None else now) - int(observed.get("observedAt", 0))
+    return 0 <= age <= max(30, PROBE_CONNECT_TIMEOUT + PROBE_RESPONSE_TIMEOUT +
+                           2 * PROBE_INTERVAL_SECONDS)
+
+
 def probe(candidate, service, url):
     parsed = urllib.parse.urlparse(url)
     started = time.monotonic()
@@ -386,7 +399,9 @@ def publish_edge_statuses():
         edge_id = candidate["id"]
         service_health = {
             service: {
-                "ready": bool(results.get(edge_id, {}).get("ready")),
+                "ready": bool(results.get(edge_id, {}).get("ready")) and
+                         probe_fresh(results.get(edge_id, {})) and
+                         fabric_evidence(candidate)["eligible"],
                 "statusCode": int(results.get(edge_id, {}).get("statusCode", 0)),
                 "latencyMs": int(results.get(edge_id, {}).get("latencyMs", 0)),
                 "observedAt": int(results.get(edge_id, {}).get("observedAt", 0)),
@@ -416,7 +431,9 @@ def publish_edge_statuses():
         try:
             kubernetes_patch(
                 f"/apis/{API_GROUP}/v1alpha1/publicedges/{edge_id}/status",
-                {"status": {"observedAt": observed_at, "services": service_health,
+                {"status": {"observedAt": observed_at,
+                            "observedGeneration": candidate.get("generation", 0),
+                            "services": service_health,
                             "networkEvidence": network_evidence, "conditions": [condition]}},
             )
         except Exception as exc:
@@ -499,7 +516,8 @@ def ranked(service):
             continue
         observed = snapshot.get(candidate["id"], {})
         network_evidence = fabric_evidence(candidate)
-        ready = bool(observed.get("ready")) and gate_ready and network_evidence["eligible"]
+        fresh_probe = probe_fresh(observed)
+        ready = bool(observed.get("ready")) and fresh_probe and gate_ready and network_evidence["eligible"]
         score = 0
         if ready:
             regional_priority = candidate.get("priorityByRegion", {}).get(REGION, candidate.get("priority", 0))
@@ -526,7 +544,8 @@ def ranked(service):
             "statusCode": observed.get("statusCode", 0), "latencyMs": observed.get("latencyMs", 0),
             "observedAt": observed.get("observedAt", 0),
             "networkEvidence": network_evidence,
-            "reason": (network_evidence.get("reason", "network evidence rejected candidate")
+            "reason": ("ServiceProbeStale" if not fresh_probe else
+                       network_evidence.get("reason", "network evidence rejected candidate")
                        if not network_evidence["eligible"] else
                        observed.get("failure", "") if gate_ready else
                        "configured readiness gate is not satisfied"),

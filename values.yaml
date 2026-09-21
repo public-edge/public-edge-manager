@@ -22,6 +22,10 @@ readinessGates: {}
 
 workload:
   hostNetwork: true
+  # Optional admission label, used together with the explicit authorityNodes
+  # inventory. Set only after an independent public UDP/TCP 53 check succeeds.
+  dnsCandidateLabel: ""
+  dnsCandidateValue: "true"
   dnsPort: 53
   httpPort: 8080
   priorityClassName: ""
