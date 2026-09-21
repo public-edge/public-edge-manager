@@ -2,17 +2,19 @@ apiVersion: v2
 name: public-edge-manager
 description: Region- and capacity-aware PublicEdge health authority for Kubernetes.
 type: application
-version: 0.5.2
-appVersion: "0.5.2"
+version: 0.5.3
+appVersion: "0.5.3"
 keywords: [public-edge, dns, external-dns, gateway-api, cilium, geo-routing]
 maintainers:
   - name: RE8CH Platform
-home: https://github.com/re8ch/public-edge-manager
-sources: [https://github.com/re8ch/public-edge-manager]
+home: https://github.com/public-edge/public-edge-manager
+sources: [https://github.com/public-edge/public-edge-manager]
 annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/category: networking
   artifacthub.io/changes: |
+    - kind: fixed
+      description: Point the chart at the current public-edge GitHub and GHCR organization.
     - kind: fixed
       description: Fail closed on empty inventory and stale service probe evidence.
     - kind: added
@@ -27,12 +29,12 @@ annotations:
       description: Expose probe.maxWorkers for installations with different service counts and CPU budgets.
   artifacthub.io/links: |
     - name: source
-      url: https://github.com/re8ch/public-edge-manager
+      url: https://github.com/public-edge/public-edge-manager
     - name: support
-      url: https://github.com/re8ch/public-edge-manager/issues
+      url: https://github.com/public-edge/public-edge-manager/issues
   artifacthub.io/images: |
     - name: public-edge-manager
-      image: ghcr.io/re8ch/public-edge-manager:0.5.2
+      image: ghcr.io/public-edge/public-edge-manager:0.5.3
       platforms:
         - linux/amd64
         - linux/arm64
