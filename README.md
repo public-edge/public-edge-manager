@@ -57,6 +57,14 @@ dns:
 Public Edge Manager does not configure routers, NAT, BGP, certificates, or
 application Gateways. Those remain explicit operator-owned infrastructure.
 
+`publicEdges` may be empty. In that mode, an external cluster adapter owns the
+`PublicEdge` resources and their lifecycle; the manager consumes those
+declarations and applies its health, evidence, and ranking rules. A Kubernetes
+Node is not automatically a public candidate, and removing a Node does not
+delete a `PublicEdge` resource. The adapter must withdraw obsolete declarations
+and supply any provider-specific node or network qualification. This keeps
+inventory ownership outside the reusable authority.
+
 ### Optional network evidence
 
 PublicEdge can consume a provider-neutral, cluster-scoped assessment API without

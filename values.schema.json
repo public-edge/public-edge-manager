@@ -136,7 +136,7 @@
           "nameservers": { "minItems": 1 },
           "authorityNodes": { "minProperties": 1 },
           "services": { "minProperties": 1 },
-          "publicEdges": { "minItems": 1 }
+          "publicEdges": { "type": "array" }
         }
       }
     },
