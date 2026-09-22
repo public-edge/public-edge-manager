@@ -43,6 +43,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           envFrom: [{configMapRef: {name: {{ include "public-edge-manager.name" . }}}}]
           env:
+            - {name: RECORDS_FILE, value: /etc/public-edge-records/records.json}
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
             - {name: HTTP_PORT, value: {{ .Values.workload.httpPort | quote }}}
             - {name: DNS_PORT, value: {{ .Values.workload.dnsPort | quote }}}
@@ -54,10 +55,15 @@ spec:
             - {name: dns-udp, containerPort: {{ .Values.workload.dnsPort }}, protocol: UDP}
             - {name: dns-tcp, containerPort: {{ .Values.workload.dnsPort }}, protocol: TCP}
             - {name: http, containerPort: {{ .Values.workload.httpPort }}}
+          volumeMounts:
+            - {name: records, mountPath: /etc/public-edge-records, readOnly: true}
           readinessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 5}
           livenessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 10}
           resources: {{ .Values.resources | toYaml | nindent 12 }}
           securityContext: {{ .Values.workload.containerSecurityContext | toYaml | nindent 12 }}
+      volumes:
+        - name: records
+          configMap: {name: {{ include "public-edge-manager.name" . }}-records}
 ---
 apiVersion: v1
 kind: Service

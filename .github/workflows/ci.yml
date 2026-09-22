@@ -35,5 +35,7 @@ jobs:
           before=$(helm template public-edge-manager . -f examples/values-example.yaml | sed -n 's/^[[:space:]]*checksum\/config: //p' | head -n 1)
           after=$(helm template public-edge-manager . -f examples/values-example.yaml --set publication.publisherNode=alternate | sed -n 's/^[[:space:]]*checksum\/config: //p' | head -n 1)
           test -n "$before" && test -n "$after" && test "$before" != "$after"
+          record_only=$(helm template public-edge-manager . -f examples/values-example.yaml --set 'dns.zones[0]=other.example.' | sed -n 's/^[[:space:]]*checksum\/config: //p' | head -n 1)
+          test "$before" = "$record_only"
       - name: Build container
         run: docker build --build-arg VERSION=ci .
