@@ -150,6 +150,24 @@ class AuthorityTests(unittest.TestCase):
         self.assertFalse(result["eligible"])
         self.assertEqual(result["reason"], "NodeNotReady")
 
+    def test_measured_public_path_can_qualify_without_node_ready(self):
+        assessment = self.assessment(state="Partial", condition_status="False")
+        assessment["status"]["nodeReady"] = False
+        assessment["status"]["pathEvidence"]["missingEvidence"] = ["node-ready"]
+        authority.FABRIC_ASSESSMENTS["edge-node"] = assessment
+        with mock.patch.object(authority, "FABRIC_EVIDENCE_MODE", "Required"), \
+             mock.patch.object(authority, "FABRIC_REQUIRE_NODE_READY", False):
+            self.assertTrue(authority.fabric_evidence({"nodeName": "edge-node"})["eligible"])
+
+    def test_missing_path_evidence_still_rejects_not_ready_node(self):
+        assessment = self.assessment(state="Partial", condition_status="False")
+        assessment["status"]["nodeReady"] = False
+        assessment["status"]["pathEvidence"]["missingEvidence"] = ["node-ready", "reachable-current-path"]
+        authority.FABRIC_ASSESSMENTS["edge-node"] = assessment
+        with mock.patch.object(authority, "FABRIC_EVIDENCE_MODE", "Required"), \
+             mock.patch.object(authority, "FABRIC_REQUIRE_NODE_READY", False):
+            self.assertFalse(authority.fabric_evidence({"nodeName": "edge-node"})["eligible"])
+
     def test_required_evidence_fails_closed_when_node_readiness_is_unavailable(self):
         authority.FABRIC_ASSESSMENTS["edge-node"] = self.assessment()
         with mock.patch.object(authority, "FABRIC_EVIDENCE_MODE", "Required"), \
