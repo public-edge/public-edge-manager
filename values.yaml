@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/public-edge/public-edge-manager
-  tag: "0.5.4"
+  tag: "0.5.5"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -48,6 +48,9 @@ probe:
 
 dns:
   soaRname: hostmaster.invalid.
+  # Optional ConfigMap with nameservers.json: {"nameservers":["ns1.example."]}.
+  # A controller can update this without restarting the authority process.
+  nameserversConfigMap: ""
   # Optional delegated zones. When set, apex NS/SOA and RFC-compatible negative
   # answers are served only for names inside these zones.
   zones: []

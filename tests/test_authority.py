@@ -17,6 +17,8 @@ class AuthorityTests(unittest.TestCase):
     def setUp(self):
         authority.RECORDS_FILE = ""
         authority.RECORDS_DIGEST = ""
+        authority.NAMESERVERS_FILE = ""
+        authority.NAMESERVERS_DIGEST = ""
         authority.SERVICE_DEFINITIONS = {
             "app.example.com.": {"service": "app", "class": "web", "probePath": "/healthz"}
         }
@@ -32,6 +34,27 @@ class AuthorityTests(unittest.TestCase):
         authority.FABRIC_EVIDENCE_ALLOWED_STATES = {"Ready", "Partial"}
         authority.AUTHORITY_ZONES = []
         authority.EXTERNAL_RECORDS = {}
+
+    def test_nameserver_election_reloads_one_or_two_and_keeps_last_good_result(self):
+        authority.NAMESERVERS = ["old.example.com."]
+        with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as stream:
+            authority.NAMESERVERS_FILE = stream.name
+            json.dump({"nameservers": ["ns1.example.com.", "ns2.example.com."]}, stream)
+            stream.flush()
+            self.assertTrue(authority.reload_nameservers())
+            self.assertEqual(authority.NAMESERVERS, ["ns1.example.com.", "ns2.example.com."])
+            stream.seek(0)
+            stream.truncate()
+            json.dump({"nameservers": ["ns1.example.com."]}, stream)
+            stream.flush()
+            self.assertTrue(authority.reload_nameservers())
+            self.assertEqual(authority.NAMESERVERS, ["ns1.example.com."])
+            stream.seek(0)
+            stream.truncate()
+            json.dump({"nameservers": []}, stream)
+            stream.flush()
+            self.assertFalse(authority.reload_nameservers())
+            self.assertEqual(authority.NAMESERVERS, ["ns1.example.com."])
 
     def test_record_config_reload_preserves_unchanged_service_health(self):
         authority.HEALTH["app"] = {"edge-1": {"ready": True}}

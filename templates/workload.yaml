@@ -44,6 +44,9 @@ spec:
           envFrom: [{configMapRef: {name: {{ include "public-edge-manager.name" . }}}}]
           env:
             - {name: RECORDS_FILE, value: /etc/public-edge-records/records.json}
+            {{- if .Values.dns.nameserversConfigMap }}
+            - {name: NAMESERVERS_FILE, value: /etc/public-edge-nameservers/nameservers.json}
+            {{- end }}
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
             - {name: HTTP_PORT, value: {{ .Values.workload.httpPort | quote }}}
             - {name: DNS_PORT, value: {{ .Values.workload.dnsPort | quote }}}
@@ -57,6 +60,9 @@ spec:
             - {name: http, containerPort: {{ .Values.workload.httpPort }}}
           volumeMounts:
             - {name: records, mountPath: /etc/public-edge-records, readOnly: true}
+            {{- if .Values.dns.nameserversConfigMap }}
+            - {name: nameservers, mountPath: /etc/public-edge-nameservers, readOnly: true}
+            {{- end }}
           readinessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 5}
           livenessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 10}
           resources: {{ .Values.resources | toYaml | nindent 12 }}
@@ -64,6 +70,10 @@ spec:
       volumes:
         - name: records
           configMap: {name: {{ include "public-edge-manager.name" . }}-records}
+        {{- if .Values.dns.nameserversConfigMap }}
+        - name: nameservers
+          configMap: {name: {{ .Values.dns.nameserversConfigMap }}}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service

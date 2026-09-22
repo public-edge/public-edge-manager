@@ -34,6 +34,7 @@
       "required": ["soaRname"],
       "properties": {
         "soaRname": { "type": "string", "pattern": "\\.$" },
+        "nameserversConfigMap": { "type": "string" },
         "zones": {
           "type": "array",
           "uniqueItems": true,

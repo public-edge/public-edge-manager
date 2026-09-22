@@ -24,6 +24,8 @@ PROBE_MAX_WORKERS = max(1, int(os.getenv("PROBE_MAX_WORKERS", "8")))
 HTTP_PORT = int(os.getenv("HTTP_PORT", "8080"))
 DNS_PORT = int(os.getenv("DNS_PORT", "53"))
 NAMESERVERS = os.getenv("NAMESERVERS", "").split()
+NAMESERVERS_FILE = os.getenv("NAMESERVERS_FILE", "")
+NAMESERVERS_DIGEST = ""
 AUTHORITY_ZONES = sorted({
     f"{str(zone).rstrip('.').lower()}."
     for zone in json.loads(os.getenv("AUTHORITY_ZONES_JSON", "[]"))
@@ -70,6 +72,37 @@ FABRIC_NODE_READINESS = {}
 FABRIC_NODE_API_AVAILABLE = False
 RECORDS_FILE = os.getenv("RECORDS_FILE", "")
 RECORDS_DIGEST = ""
+
+
+def reload_nameservers():
+    """Accept a projected election result without restarting DNS listeners."""
+    global NAMESERVERS, NAMESERVERS_DIGEST
+    if not NAMESERVERS_FILE:
+        return False
+    try:
+        with open(NAMESERVERS_FILE, "rb") as stream:
+            raw = stream.read()
+        digest = hashlib.sha256(raw).hexdigest()
+        if digest == NAMESERVERS_DIGEST:
+            return False
+        payload = json.loads(raw)
+        nameservers = payload["nameservers"]
+        if not isinstance(nameservers, list) or not 1 <= len(nameservers) <= 3:
+            raise ValueError("expected one to three nameservers")
+        if len(set(nameservers)) != len(nameservers):
+            raise ValueError("duplicate nameserver")
+        for name in nameservers:
+            if not isinstance(name, str) or not name.endswith("."):
+                raise ValueError("nameserver must be an absolute DNS name")
+            encode_name(name)
+        with LOCK:
+            NAMESERVERS = nameservers
+            NAMESERVERS_DIGEST = digest
+        print(f"nameservers reloaded digest={digest[:12]} count={len(nameservers)}", flush=True)
+        return True
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        print(f"nameservers reload failed: {exc}", flush=True)
+        return False
 
 
 def reload_records():
@@ -435,6 +468,7 @@ def probe(candidate, service, url):
 
 def probe_all():
     reload_records()
+    reload_nameservers()
     refresh_candidates()
     refresh_fabric_assessments()
     jobs = [
@@ -838,6 +872,8 @@ class HTTPHandler(BaseHTTPRequestHandler):
 def main():
     if RECORDS_FILE and not reload_records():
         raise RuntimeError("unable to load record configuration")
+    if NAMESERVERS_FILE and not reload_nameservers():
+        raise RuntimeError("unable to load nameserver election")
     for name, records in EXTERNAL_RECORDS.items():
         zone = matching_authority_zone(name)
         if not zone or name == zone or name in SERVICES or not records:

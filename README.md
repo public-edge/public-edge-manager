@@ -136,6 +136,14 @@ Node name and the admission label. A local `/healthz` response is process
 health, not proof that the public Internet can reach the authority; keep the
 external probe running after admission and withdraw the label on failure.
 
+For an elected NS set, set `dns.nameserversConfigMap` to a ConfigMap in the
+release namespace with a `nameservers.json` key, for example
+`{"nameservers":["ns-sh.example.","ns-gz.example."]}`. The manager accepts one
+to three unique absolute names and reloads projected updates during its probe
+loop. Invalid updates leave the last valid set in service. The configured
+`nameservers` value remains the startup fallback when no election ConfigMap is
+used. The election controller must update parent delegation and glue as well.
+
 The chart creates two Services:
 
 - `public-edge-manager-dns` carries only authoritative UDP/TCP 53 and may be
