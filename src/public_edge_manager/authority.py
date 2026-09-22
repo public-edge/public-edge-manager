@@ -3,6 +3,7 @@ import http.client
 import ipaddress
 import json
 import os
+import hashlib
 import socket
 import socketserver
 import ssl
@@ -67,6 +68,66 @@ FABRIC_ASSESSMENTS = {}
 FABRIC_API_AVAILABLE = False
 FABRIC_NODE_READINESS = {}
 FABRIC_NODE_API_AVAILABLE = False
+RECORDS_FILE = os.getenv("RECORDS_FILE", "")
+RECORDS_DIGEST = ""
+
+
+def reload_records():
+    """Atomically accept a projected ConfigMap update; retain last good data on error."""
+    global RECORDS_DIGEST, SERVICE_DEFINITIONS, SERVICES, AUTHORITY_ZONES, EXTERNAL_RECORDS
+    if not RECORDS_FILE:
+        return False
+    try:
+        with open(RECORDS_FILE, "rb") as stream:
+            raw = stream.read()
+        digest = hashlib.sha256(raw).hexdigest()
+        if digest == RECORDS_DIGEST:
+            return False
+        payload = json.loads(raw)
+        definitions = payload["services"]
+        zones = payload["zones"]
+        external = payload["externalRecords"]
+        if not isinstance(definitions, dict) or not definitions or not isinstance(zones, list) or not isinstance(external, dict):
+            raise ValueError("invalid record configuration")
+        services = {name: definition["service"] for name, definition in definitions.items()}
+        authority_zones = sorted({f"{str(zone).rstrip('.').lower()}." for zone in zones if str(zone).strip()}, key=len, reverse=True)
+        external_records = {f"{name.rstrip('.').lower()}.": records for name, records in external.items()}
+        for name, records in external_records.items():
+            zone = next((zone for zone in authority_zones if name == zone or name.endswith(f".{zone}")), None)
+            if not zone or name == zone or name in services or not records or not isinstance(records, list):
+                raise ValueError(f"external record {name} conflicts with a zone or managed service")
+            if any(item.get("type") not in ("A", "AAAA", "CNAME") or not item.get("externalCDN") for item in records):
+                raise ValueError(f"external record {name} requires supported type and externalCDN marker")
+            if any(item["type"] == "CNAME" for item in records) and len(records) != 1:
+                raise ValueError(f"external CNAME {name} must be the only record at its name")
+            for item in records:
+                if item["type"] == "CNAME":
+                    encode_name(item["value"])
+                elif item["type"] == "A":
+                    ipaddress.IPv4Address(item["value"])
+                else:
+                    ipaddress.IPv6Address(item["value"])
+        with LOCK:
+            services_changed = definitions != SERVICE_DEFINITIONS
+            unchanged_services = {
+                definition["service"] for name, definition in definitions.items()
+                if SERVICE_DEFINITIONS.get(name) == definition
+            }
+            previous_health = {service: HEALTH[service] for service in unchanged_services if service in HEALTH}
+            SERVICE_DEFINITIONS = definitions
+            SERVICES = services
+            AUTHORITY_ZONES = authority_zones
+            EXTERNAL_RECORDS = external_records
+            HEALTH.clear()
+            HEALTH.update({service: previous_health.get(service, {}) for service in services.values()})
+            if services_changed:
+                CANDIDATES.clear()
+            RECORDS_DIGEST = digest
+        print(f"records reloaded digest={digest[:12]} services={len(services)}", flush=True)
+        return True
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"records reload failed: {exc}", flush=True)
+        return False
 
 
 def kubernetes_get(path):
@@ -366,6 +427,7 @@ def probe(candidate, service, url):
 
 
 def probe_all():
+    reload_records()
     refresh_candidates()
     refresh_fabric_assessments()
     jobs = [
@@ -767,6 +829,8 @@ class HTTPHandler(BaseHTTPRequestHandler):
 
 
 def main():
+    if RECORDS_FILE and not reload_records():
+        raise RuntimeError("unable to load record configuration")
     for name, records in EXTERNAL_RECORDS.items():
         zone = matching_authority_zone(name)
         if not zone or name == zone or name in SERVICES or not records:

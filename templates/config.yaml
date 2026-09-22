@@ -6,10 +6,7 @@ data:
   API_GROUP: {{ .Values.api.group | quote }}
   NAMESERVERS: {{ join " " .Values.nameservers | quote }}
   SOA_RNAME: {{ .Values.dns.soaRname | quote }}
-  AUTHORITY_ZONES_JSON: {{ .Values.dns.zones | toJson | quote }}
-  EXTERNAL_RECORDS_JSON: {{ .Values.dns.externalRecords | toJson | quote }}
   PROBE_USER_AGENT: {{ .Values.probe.userAgent | quote }}
-  SERVICES_JSON: {{ .Values.services | toJson | quote }}
   PUBLICATION_ENABLED: {{ .Values.publication.enabled | quote }}
   PUBLISHER_NODE: {{ .Values.publication.publisherNode | quote }}
   PUBLICATION_REFS_JSON: {{ .Values.publication.refs | toJson | quote }}

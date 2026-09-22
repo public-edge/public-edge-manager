@@ -1,5 +1,7 @@
 
 import os
+import json
+import tempfile
 
 import struct
 import time
@@ -13,6 +15,8 @@ os.environ.setdefault("CANDIDATES_JSON", "[]")
 
 class AuthorityTests(unittest.TestCase):
     def setUp(self):
+        authority.RECORDS_FILE = ""
+        authority.RECORDS_DIGEST = ""
         authority.SERVICE_DEFINITIONS = {
             "app.example.com.": {"service": "app", "class": "web", "probePath": "/healthz"}
         }
@@ -28,6 +32,34 @@ class AuthorityTests(unittest.TestCase):
         authority.FABRIC_EVIDENCE_ALLOWED_STATES = {"Ready", "Partial"}
         authority.AUTHORITY_ZONES = []
         authority.EXTERNAL_RECORDS = {}
+
+    def test_record_config_reload_preserves_unchanged_service_health(self):
+        authority.HEALTH["app"] = {"edge-1": {"ready": True}}
+        with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as stream:
+            authority.RECORDS_FILE = stream.name
+            json.dump({"services": authority.SERVICE_DEFINITIONS, "zones": ["example.com."],
+                       "externalRecords": {}}, stream)
+            stream.flush()
+            self.assertTrue(authority.reload_records())
+            self.assertTrue(authority.HEALTH["app"]["edge-1"]["ready"])
+            self.assertFalse(authority.reload_records())
+            stream.seek(0)
+            stream.truncate()
+            json.dump({"services": authority.SERVICE_DEFINITIONS, "zones": ["example.com."],
+                       "externalRecords": {"cdn.example.com.": [{"type": "CNAME", "value": "cdn.test.",
+                                                                      "externalCDN": True}]}}, stream)
+            stream.flush()
+            self.assertTrue(authority.reload_records())
+            self.assertIn("cdn.example.com.", authority.EXTERNAL_RECORDS)
+            self.assertTrue(authority.HEALTH["app"]["edge-1"]["ready"])
+
+    def test_invalid_record_reload_keeps_last_good_configuration(self):
+        with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as stream:
+            authority.RECORDS_FILE = stream.name
+            stream.write('{"services":{},"zones":[],"externalRecords":{}}')
+            stream.flush()
+            self.assertFalse(authority.reload_records())
+            self.assertIn("app.example.com.", authority.SERVICES)
 
     @staticmethod
     def dns_query(name, qtype):
