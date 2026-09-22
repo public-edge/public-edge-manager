@@ -4,6 +4,59 @@ entries:
   - annotations:
       artifacthub.io/category: networking
       artifacthub.io/changes: |
+        - kind: changed
+          description: Reload delegated zones, service records and external CDN records from a separate mounted ConfigMap without rolling DNS pods.
+        - kind: fixed
+          description: Point the chart at the current public-edge GitHub and GHCR organization.
+        - kind: fixed
+          description: Fail closed on empty inventory and stale service probe evidence.
+        - kind: added
+          description: Serve delegated zones and explicitly marked external CDN records.
+        - kind: fixed
+          description: Restart authority pods when ConfigMap values, including the publisher node, change.
+        - kind: changed
+          description: Consume NetworkPathAssessment v1alpha2 strictly as a freshness, readiness and reachability eligibility gate; remove O/S/I ranking weights.
+        - kind: fixed
+          description: Bound concurrent endpoint sampling so probe load cannot starve health and discovery requests.
+        - kind: added
+          description: Expose probe.maxWorkers for installations with different service counts and CPU budgets.
+      artifacthub.io/images: |
+        - name: public-edge-manager
+          image: ghcr.io/public-edge/public-edge-manager:0.5.4
+          platforms:
+            - linux/amd64
+            - linux/arm64
+      artifacthub.io/license: Apache-2.0
+      artifacthub.io/links: |
+        - name: source
+          url: https://github.com/public-edge/public-edge-manager
+        - name: support
+          url: https://github.com/public-edge/public-edge-manager/issues
+    apiVersion: v2
+    appVersion: 0.5.4
+    created: "2026-09-22T03:19:41.032562391Z"
+    description: Region- and capacity-aware PublicEdge health authority for Kubernetes.
+    digest: 58e0e1e525d281ba12e2d6f5afd51990af5891a5382a7243b2d8e64947b2fe16
+    home: https://github.com/public-edge/public-edge-manager
+    keywords:
+    - public-edge
+    - dns
+    - external-dns
+    - gateway-api
+    - cilium
+    - geo-routing
+    maintainers:
+    - name: RE8CH Platform
+    name: public-edge-manager
+    sources:
+    - https://github.com/public-edge/public-edge-manager
+    type: application
+    urls:
+    - https://github.com/public-edge/public-edge-manager/releases/download/v0.5.4/public-edge-manager-0.5.4.tgz
+    version: 0.5.4
+  - annotations:
+      artifacthub.io/category: networking
+      artifacthub.io/changes: |
         - kind: fixed
           description: Point the chart at the current public-edge GitHub and GHCR organization.
         - kind: fixed
@@ -336,4 +389,4 @@ entries:
     urls:
     - https://re8ch.github.io/public-edge-manager/public-edge-manager-0.2.0.tgz
     version: 0.2.0
-generated: "2026-09-21T17:16:08.324810331Z"
+generated: "2026-09-22T03:19:41.03089947Z"
