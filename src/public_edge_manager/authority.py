@@ -94,8 +94,10 @@ def reload_records():
         external_records = {f"{name.rstrip('.').lower()}.": records for name, records in external.items()}
         for name, records in external_records.items():
             zone = next((zone for zone in authority_zones if name == zone or name.endswith(f".{zone}")), None)
-            if not zone or name == zone or name in services or not records or not isinstance(records, list):
+            if not zone or name == zone or name in services or not isinstance(records, list) or not records:
                 raise ValueError(f"external record {name} conflicts with a zone or managed service")
+            if not all(isinstance(item, dict) for item in records):
+                raise ValueError(f"external record {name} must contain record objects")
             if any(item.get("type") not in ("A", "AAAA", "CNAME") or not item.get("externalCDN") for item in records):
                 raise ValueError(f"external record {name} requires supported type and externalCDN marker")
             if any(item["type"] == "CNAME" for item in records) and len(records) != 1:
@@ -108,7 +110,6 @@ def reload_records():
                 else:
                     ipaddress.IPv6Address(item["value"])
         with LOCK:
-            services_changed = definitions != SERVICE_DEFINITIONS
             unchanged_services = {
                 definition["service"] for name, definition in definitions.items()
                 if SERVICE_DEFINITIONS.get(name) == definition
@@ -120,8 +121,6 @@ def reload_records():
             EXTERNAL_RECORDS = external_records
             HEALTH.clear()
             HEALTH.update({service: previous_health.get(service, {}) for service in services.values()})
-            if services_changed:
-                CANDIDATES.clear()
             RECORDS_DIGEST = digest
         print(f"records reloaded digest={digest[:12]} services={len(services)}", flush=True)
         return True
