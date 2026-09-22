@@ -329,8 +329,16 @@ def fabric_evidence(candidate, now=None):
     reason = condition.get("reason", state)
     fresh = valid_until is not None and current <= valid_until
     path_evidence = status.get("pathEvidence", {})
+    # The fabric collector may mark an otherwise measured, reachable path
+    # Partial solely because the Kubernetes Node is NotReady. Public delivery
+    # is qualified by the observed path, not the kubelet's scheduling state.
+    condition_ready = condition.get("status") == "True" or (
+        not FABRIC_REQUIRE_NODE_READY and
+        set(path_evidence.get("missingEvidence", [])) == {"node-ready"}
+    )
     evidence_eligible = (fresh and state in FABRIC_EVIDENCE_ALLOWED_STATES and
-                         condition.get("status") == "True" and status.get("nodeReady") is True and
+                         condition_ready and
+                         (not FABRIC_REQUIRE_NODE_READY or status.get("nodeReady") is True) and
                          path_evidence.get("currentPathMeasured") is True and
                          path_evidence.get("reachable") is True)
     if not fresh:
