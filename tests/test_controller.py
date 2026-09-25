@@ -46,6 +46,47 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(controller.capacity(node_with_capacity(3)), 3)
         self.assertLess(controller.capacity(node_with_capacity(3)), controller.MINIMUM_CAPACITY)
 
+    def test_capacity_uses_authoritative_inventory_when_annotation_is_absent(self):
+        self.assertEqual(controller.capacity(node(name="overseas-la"), {"overseas-la": 1000}), 1000)
+
+    def test_capacity_annotation_overrides_authoritative_inventory(self):
+        item = node_with_capacity(200)
+        item["metadata"]["name"] = "r640"
+        self.assertEqual(controller.capacity(item, {"r640": 1000}), 200)
+
+    def test_capacity_inventory_reads_uplink_mbps(self):
+        payload = {"spec": {"nodes": [
+            {"name": "overseas-la", "uplinkMbps": 1000},
+            {"name": "r640", "uplinkMbps": 200},
+            {"name": "missing-capacity"},
+        ]}}
+        with mock.patch.object(controller, "CAPACITY_INVENTORY_GROUP", "networking.advfab.org"), \
+             mock.patch.object(controller, "CAPACITY_INVENTORY_NAME", "advanced-fabric"), \
+             mock.patch.object(controller, "api", return_value=payload):
+            self.assertEqual(controller.capacity_inventory_by_node(), {
+                "overseas-la": {"capacityMbps": 1000, "region": ""},
+                "r640": {"capacityMbps": 200, "region": ""},
+            })
+
+    def test_locality_uses_authoritative_inventory_when_node_label_is_absent(self):
+        self.assertEqual(
+            controller.locality(node(name="r640", region=""), {
+                "r640": {"capacityMbps": 200, "region": "cn-hunan"},
+            }),
+            ("CN", "cn-hunan"),
+        )
+
+    def test_reconcile_status_uses_persisted_generation(self):
+        desired = {
+            "apiVersion": "networking.re8ch.com/v1alpha1", "kind": "PublicEdge",
+            "metadata": {"name": "edge-a"}, "spec": {"capacityMbps": 1000},
+            "status": {"observedAt": "now"},
+        }
+        with mock.patch.object(controller, "patch") as patch:
+            patch.side_effect = [{"metadata": {"generation": 7}}, {}]
+            controller.reconcile_object(desired, {"edge-a": {}})
+        self.assertEqual(patch.call_args_list[1].args[1]["status"]["observedGeneration"], 7)
+
     def test_names_are_stable_hashes_and_do_not_embed_node_name(self):
         with mock.patch.object(controller, "PARENT_ZONE", "example.com"):
             self.assertEqual(controller.object_name("uid-1"), controller.object_name("uid-1"))

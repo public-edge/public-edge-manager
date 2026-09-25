@@ -30,6 +30,10 @@ INTERVAL = max(5, int(os.getenv("DISCOVERY_INTERVAL_SECONDS", "15")))
 PROBE_TIMEOUT = max(0.2, float(os.getenv("DISCOVERY_PROBE_TIMEOUT_SECONDS", "2")))
 DEFAULT_CAPACITY = max(1, int(os.getenv("DEFAULT_CAPACITY_MBPS", "100")))
 MINIMUM_CAPACITY = max(1, int(os.getenv("MINIMUM_CAPACITY_MBPS", "100")))
+CAPACITY_INVENTORY_GROUP = os.getenv("CAPACITY_INVENTORY_API_GROUP", "")
+CAPACITY_INVENTORY_VERSION = os.getenv("CAPACITY_INVENTORY_API_VERSION", "v1alpha1")
+CAPACITY_INVENTORY_RESOURCE = os.getenv("CAPACITY_INVENTORY_RESOURCE", "advancedfabrics")
+CAPACITY_INVENTORY_NAME = os.getenv("CAPACITY_INVENTORY_NAME", "")
 ALLOWED_STATES = set(json.loads(os.getenv("FABRIC_EVIDENCE_ALLOWED_STATES_JSON", '["Ready","Partial"]')))
 NPA_GROUP = os.getenv("FABRIC_EVIDENCE_API_GROUP", "networking.re8ch.com")
 NPA_VERSION = os.getenv("FABRIC_EVIDENCE_API_VERSION", "v1alpha2")
@@ -196,7 +200,26 @@ def dns_query(ip, zone, tcp=False):
         return False
 
 
-def capacity(node):
+def capacity_inventory_by_node():
+    if not CAPACITY_INVENTORY_GROUP or not CAPACITY_INVENTORY_NAME:
+        return {}
+    item = api(
+        f"/apis/{CAPACITY_INVENTORY_GROUP}/{CAPACITY_INVENTORY_VERSION}/"
+        f"{CAPACITY_INVENTORY_RESOURCE}/{CAPACITY_INVENTORY_NAME}"
+    )
+    result = {}
+    for entry in item.get("spec", {}).get("nodes", []):
+        try:
+            result[entry["name"]] = {
+                "capacityMbps": max(1, int(float(entry["uplinkMbps"]))),
+                "region": entry.get("region", ""),
+            }
+        except (KeyError, TypeError, ValueError):
+            continue
+    return result
+
+
+def capacity(node, inventory=None):
     metadata = node.get("metadata", {})
     annotations = metadata.get("annotations", {})
     for key in (f"{API_GROUP}/observed-capacity-mbps", f"{API_GROUP}/capacity-mbps"):
@@ -204,21 +227,29 @@ def capacity(node):
             return max(1, int(float(annotations[key])))
         except (KeyError, TypeError, ValueError):
             pass
+    inventory = inventory or {}
+    if metadata.get("name") in inventory:
+        value = inventory[metadata["name"]]
+        return value["capacityMbps"] if isinstance(value, dict) else value
     return DEFAULT_CAPACITY
 
 
-def locality(node):
+def locality(node, inventory=None):
     labels = node.get("metadata", {}).get("labels", {})
-    region = labels.get("topology.kubernetes.io/region", "unknown")
+    inventory = inventory or {}
+    inventory_region = inventory.get(node.get("metadata", {}).get("name"), {})
+    inventory_region = inventory_region.get("region", "") if isinstance(inventory_region, dict) else ""
+    region = labels.get("topology.kubernetes.io/region") or inventory_region or "unknown"
     area = labels.get(f"{API_GROUP}/area", "")
     if not area:
         area = region.split("-", 1)[0].upper() if region != "unknown" else "GLOBAL"
     return area, region
 
 
-def desired_edge(node, public_ip, gateway, gateway_ip, assessment, listeners):
+def desired_edge(node, public_ip, gateway, gateway_ip, assessment, listeners, node_capacity,
+                 inventory=None):
     uid = node["metadata"]["uid"]
-    area, region = locality(node)
+    area, region = locality(node, inventory)
     protocols = ["http", "https", "tls-passthrough"]
     ports = [80, 443]
     service_classes = sorted({value for value in os.getenv("SERVICE_CLASSES", "api,web,registry,db-ro,db-rw").split(",") if value})
@@ -231,14 +262,14 @@ def desired_edge(node, public_ip, gateway, gateway_ip, assessment, listeners):
             "area": area, "region": region, "nodeName": node["metadata"]["name"],
             "enabled": True, "draining": False,
             "endpoint": {"type": "PublicIP", "value": public_ip},
-            "gatewayVIP": gateway_ip, "capacityMbps": capacity(node), "priority": 0,
+            "gatewayVIP": gateway_ip, "capacityMbps": node_capacity, "priority": 0,
             "protocols": protocols, "ports": ports, "serviceClasses": service_classes,
             "forwarding": {"mode": "DirectGateway"},
             "gatewayRef": {"namespace": gateway["metadata"]["namespace"], "name": gateway["metadata"]["name"]},
             "discovery": {"source": "Node+NetworkPathAssessment+Gateway", "nodeUID": uid},
         },
         "status": {
-            "observedAt": now_rfc3339(), "observedGeneration": 1,
+            "observedAt": now_rfc3339(),
             "networkEvidence": assessment.get("status", {}),
             "gatewayPath": {"address": gateway_ip, "reachable": tcp_probe(gateway_ip, 443)},
             "protocolProbes": listeners,
@@ -254,9 +285,10 @@ def reconcile_object(desired, existing):
     base = f"/apis/{API_GROUP}/{API_VERSION}/publicedges/{name}"
     body = {key: desired[key] for key in ("apiVersion", "kind", "metadata", "spec")}
     if name in existing:
-        patch(base, body)
+        persisted = patch(base, body)
     else:
-        api(f"/apis/{API_GROUP}/{API_VERSION}/publicedges", "POST", body)
+        persisted = api(f"/apis/{API_GROUP}/{API_VERSION}/publicedges", "POST", body)
+    desired["status"]["observedGeneration"] = persisted["metadata"]["generation"]
     patch(base + "/status", {"status": desired["status"]})
 
 
@@ -371,6 +403,7 @@ def reconcile():
     if not acquire_lease():
         return
     nodes = api("/api/v1/nodes").get("items", [])
+    inventory = capacity_inventory_by_node()
     assessments = assessment_by_node(api(f"/apis/{NPA_GROUP}/{NPA_VERSION}/{NPA_RESOURCE}"))
     gateway_path = "/apis/gateway.networking.k8s.io/v1/gateways"
     if GATEWAY_NAMESPACE:
@@ -387,7 +420,7 @@ def reconcile():
         name = node.get("metadata", {}).get("name", "")
         uid = node.get("metadata", {}).get("uid", "")
         public_ip = global_external_ip(node)
-        node_capacity = capacity(node)
+        node_capacity = capacity(node, inventory)
         capacity_ready = node_capacity >= MINIMUM_CAPACITY
         path_ready = bool(public_ip and uid and capacity_ready and assessment_ready(assessments.get(name)))
         gateway_ready = path_ready and tcp_probe(gateway_ip, 443)
@@ -401,7 +434,8 @@ def reconcile():
         patch_node_labels(node, gateway_ready, ingress_ready)
         if not ingress_ready:
             continue
-        desired = desired_edge(node, public_ip, gateway, gateway_ip, assessments[name], listeners)
+        desired = desired_edge(node, public_ip, gateway, gateway_ip, assessments[name], listeners,
+                               node_capacity, inventory)
         desired_names.add(desired["metadata"]["name"])
         reconcile_object(desired, existing)
         if dns_ready:

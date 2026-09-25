@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/public-edge/public-edge-manager
-  tag: "0.6.8"
+  tag: "0.6.9"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -26,6 +26,8 @@ discovery:
   defaultCapacityMbps: 100
   # Nodes below this measured/configured uplink are never public exits or DNS authorities.
   minimumCapacityMbps: 100
+  # Optional authoritative node uplink inventory. Node annotations remain explicit overrides.
+  capacityInventory: {}
   maxNameservers: 3
   gatewayNamespace: ""
   gatewaySelector: networking.re8ch.com/public-edge-gateway=true
