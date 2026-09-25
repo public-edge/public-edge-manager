@@ -3,6 +3,13 @@
   "type": "object",
   "properties": {
     "enabled": { "type": "boolean" },
+    "runtime": {
+      "type": "object",
+      "required": ["configMapName"],
+      "properties": {
+        "configMapName": {"type": "string", "minLength": 1}
+      }
+    },
     "api": {
       "type": "object",
       "required": ["group"],
