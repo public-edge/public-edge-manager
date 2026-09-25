@@ -164,6 +164,16 @@ Ingress mutation is disabled by default. Enable `publication.enabled` and
 `rbac.mutateIngresses` together only for provider publication. Normal delegated
 authoritative DNS requires read-only Ingress access.
 
+Publication adapters consume the same sticky selection as authoritative DNS.
+For PowerDNS, point a dedicated ExternalDNS RFC2136 instance at PowerDNS and
+configure an adapter with `provider: powerdns-rfc2136` whose refs are owned only
+by that instance. Public Edge Manager updates the referenced Ingress target;
+it never receives the RFC2136 TSIG secret or PowerDNS credentials. A healthy
+selection is retained across ranking changes. Failover waits for
+`candidateSelection.failoverGraceSeconds`, `minReadySeconds`, and
+`minHoldSeconds`, preserving the last-known-good target while a replacement is
+qualified.
+
 Cloudflare parent delegation is optional. When configured, the Lease holder
 publishes stable hash-based NS names and glue immediately after complete UDP and
 TCP probes. A single NS is an allowed degraded state; zero healthy authorities

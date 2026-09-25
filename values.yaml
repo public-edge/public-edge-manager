@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/public-edge/public-edge-manager
-  tag: "0.6.2"
+  tag: "0.6.6"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -77,6 +77,11 @@ candidateSelection:
   latencyDivisorMs: 20
   latencyPenaltyCap: 50
   localNodeBonus: 5
+  # A healthy selected exit is sticky. Failover occurs only after the current
+  # target's grace period and a replacement's continuous qualification window.
+  failoverGraceSeconds: 300
+  minReadySeconds: 120
+  minHoldSeconds: 600
   resolverCidrs: {}
 
 # Optional, provider-neutral network evidence. PublicEdge discovers the CRD by
@@ -93,8 +98,9 @@ fabricEvidence:
 publication:
   enabled: false
   # Named provider adapters may publish the same selected edge through
-  # independent ExternalDNS-only Ingress objects. Credentials and provider
-  # reconciliation remain isolated in their ExternalDNS releases.
+  # independent ExternalDNS-only Ingress objects. This includes PowerDNS via
+  # an isolated ExternalDNS RFC2136 provider; credentials and provider
+  # reconciliation remain outside Public Edge Manager.
   adapters: {}
   # Deprecated singleton retained for backwards compatibility.
   refs: {}
