@@ -26,7 +26,7 @@ jobs:
             echo 'private deployment data must stay outside public product defaults'
             exit 1
           fi
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - name: Validate Helm chart
         run: |
           helm lint .
