@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import ssl
+import time
 import urllib.error
 import urllib.request
 
@@ -13,6 +14,7 @@ SA = "/var/run/secrets/kubernetes.io/serviceaccount"
 NAMESPACE = os.getenv("POD_NAMESPACE", "regional-routing")
 CONFIGMAP = os.getenv("RUNTIME_CONFIGMAP", "public-edge-runtime")
 API_GROUP = os.getenv("API_GROUP", "networking.re8ch.com")
+GATEWAY_NAMESPACE = os.getenv("GATEWAY_NAMESPACE", "")
 
 
 def api(path, method="GET", payload=None):
@@ -26,8 +28,14 @@ def api(path, method="GET", payload=None):
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/merge-patch+json"},
     )
     context = ssl.create_default_context(cafile=f"{SA}/ca.crt")
-    with urllib.request.urlopen(request, context=context, timeout=10) as response:
-        return {} if response.status == 204 else json.load(response)
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(request, context=context, timeout=10) as response:
+                return {} if response.status == 204 else json.load(response)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429 or attempt == 3:
+                raise
+            time.sleep(min(3, int(exc.headers.get("Retry-After", "1"))))
 
 
 def load_runtime():
@@ -75,7 +83,10 @@ def mutate(args):
 def status(_args):
     _, runtime = load_runtime()
     edges = api(f"/apis/{API_GROUP}/v1alpha1/publicedges").get("items", [])
-    gateways = api("/apis/gateway.networking.k8s.io/v1/gateways").get("items", [])
+    gateway_path = "/apis/gateway.networking.k8s.io/v1/gateways"
+    if GATEWAY_NAMESPACE:
+        gateway_path = f"/apis/gateway.networking.k8s.io/v1/namespaces/{GATEWAY_NAMESPACE}/gateways"
+    gateways = api(gateway_path).get("items", [])
     output = {
         "runtime": runtime,
         "edges": [{"name": item["metadata"]["name"], "spec": item.get("spec", {}),

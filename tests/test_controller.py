@@ -24,6 +24,9 @@ def assessment(name="edge", state="Ready", reachable=True):
 
 
 class ControllerTests(unittest.TestCase):
+    def test_lease_timestamp_uses_kubernetes_microtime(self):
+        self.assertRegex(controller.now_rfc3339(), r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
+
     def test_candidate_requires_global_external_ip_and_fresh_path(self):
         self.assertEqual(controller.global_external_ip(node()), "8.8.8.8")
         self.assertEqual(controller.global_external_ip(node(address="10.0.0.1")), "")
