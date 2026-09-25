@@ -2,8 +2,8 @@ apiVersion: v2
 name: public-edge-manager
 description: Region- and capacity-aware PublicEdge health authority for Kubernetes.
 type: application
-version: 0.6.8
-appVersion: "0.6.8"
+version: 0.6.9
+appVersion: "0.6.9"
 keywords: [public-edge, dns, external-dns, gateway-api, cilium, geo-routing]
 maintainers:
   - name: RE8CH Platform
@@ -52,7 +52,7 @@ annotations:
       url: https://github.com/public-edge/public-edge-manager/issues
   artifacthub.io/images: |
     - name: public-edge-manager
-      image: ghcr.io/public-edge/public-edge-manager:0.6.8
+      image: ghcr.io/public-edge/public-edge-manager:0.6.9
       platforms:
         - linux/amd64
         - linux/arm64
