@@ -36,6 +36,7 @@ class AuthorityTests(unittest.TestCase):
         authority.FABRIC_EVIDENCE_ALLOWED_STATES = {"Ready", "Partial"}
         authority.AUTHORITY_ZONES = []
         authority.EXTERNAL_RECORDS = {}
+        authority.SELECTIONS.clear()
 
     def test_nameserver_election_reloads_one_or_two_and_keeps_last_good_result(self):
         authority.NAMESERVERS = ["old.example.com."]
@@ -518,7 +519,27 @@ class AuthorityTests(unittest.TestCase):
              mock.patch.object(authority, "kubernetes_get", return_value={"metadata": {"annotations": {}}}), \
              mock.patch.object(authority, "kubernetes_patch") as patch:
             authority.publish_default_area()
-        patch.assert_not_called()
+        self.assertEqual(patch.call_count, 2)
+        annotations = patch.call_args_list[0].args[1]["metadata"]["annotations"]
+        self.assertEqual(annotations["external-dns.alpha.kubernetes.io/target"], "192.0.2.10")
+
+    def test_selection_stays_on_healthy_exit_when_rank_changes(self):
+        edge_a = {"id": "edge-a", "ip": "192.0.2.10", "state": "ready", "score": 10}
+        edge_b = {"id": "edge-b", "ip": "192.0.2.11", "state": "ready", "score": 9}
+        self.assertEqual(authority.stable_selected("app", [edge_a, edge_b], "GLOBAL", 0)["id"], "edge-a")
+        self.assertEqual(authority.stable_selected("app", [dict(edge_b, score=20), edge_a], "GLOBAL", 1000)["id"], "edge-a")
+
+    def test_selection_failover_requires_grace_and_ready_windows(self):
+        edge_a = {"id": "edge-a", "ip": "192.0.2.10", "state": "ready", "score": 10}
+        failed_a = dict(edge_a, state="unavailable", score=0)
+        edge_b = {"id": "edge-b", "ip": "192.0.2.11", "state": "ready", "score": 9}
+        with mock.patch.object(authority, "CANDIDATE_FAILOVER_GRACE_SECONDS", 30), \
+             mock.patch.object(authority, "CANDIDATE_MIN_READY_SECONDS", 20), \
+             mock.patch.object(authority, "CANDIDATE_MIN_HOLD_SECONDS", 60):
+            authority.stable_selected("app", [edge_a, edge_b], "GLOBAL", 0)
+            self.assertEqual(authority.stable_selected("app", [edge_b, failed_a], "GLOBAL", 10)["id"], "edge-a")
+            self.assertEqual(authority.stable_selected("app", [edge_b, failed_a], "GLOBAL", 39)["id"], "edge-a")
+            self.assertEqual(authority.stable_selected("app", [edge_b, failed_a], "GLOBAL", 60)["id"], "edge-b")
 
     def test_disabled_publication_adapter_is_skipped(self):
         adapters = {

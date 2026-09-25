@@ -143,7 +143,23 @@
         "externalTrafficPolicy": { "enum": ["", "Cluster", "Local"] }
       }
     },
-    "candidateSelection": { "type": "object" }
+    "candidateSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capacityWeight", "localAreaBonus", "priorityWeight", "latencyDivisorMs", "latencyPenaltyCap", "localNodeBonus", "failoverGraceSeconds", "minReadySeconds", "minHoldSeconds", "resolverCidrs"],
+      "properties": {
+        "capacityWeight": {"type": "integer", "minimum": 0},
+        "localAreaBonus": {"type": "integer", "minimum": 0},
+        "priorityWeight": {"type": "integer", "minimum": 0},
+        "latencyDivisorMs": {"type": "integer", "minimum": 1},
+        "latencyPenaltyCap": {"type": "integer", "minimum": 0},
+        "localNodeBonus": {"type": "integer", "minimum": 0},
+        "failoverGraceSeconds": {"type": "integer", "minimum": 0},
+        "minReadySeconds": {"type": "integer", "minimum": 0},
+        "minHoldSeconds": {"type": "integer", "minimum": 0},
+        "resolverCidrs": {"type": "object"}
+      }
+    }
     ,"fabricEvidence": {
       "type": "object",
       "additionalProperties": false,

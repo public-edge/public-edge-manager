@@ -58,6 +58,10 @@ CANDIDATE_PRIORITY_WEIGHT = max(0, int(os.getenv("CANDIDATE_PRIORITY_WEIGHT", "1
 CANDIDATE_LATENCY_DIVISOR_MS = max(1, int(os.getenv("CANDIDATE_LATENCY_DIVISOR_MS", "20")))
 CANDIDATE_LATENCY_PENALTY_CAP = max(0, int(os.getenv("CANDIDATE_LATENCY_PENALTY_CAP", "50")))
 CANDIDATE_LOCAL_NODE_BONUS = max(0, int(os.getenv("CANDIDATE_LOCAL_NODE_BONUS", "5")))
+CANDIDATE_FAILOVER_GRACE_SECONDS = max(0, int(os.getenv("CANDIDATE_FAILOVER_GRACE_SECONDS", "300")))
+CANDIDATE_MIN_READY_SECONDS = max(0, int(os.getenv("CANDIDATE_MIN_READY_SECONDS", "120")))
+CANDIDATE_MIN_HOLD_SECONDS = max(0, int(os.getenv("CANDIDATE_MIN_HOLD_SECONDS", "600")))
+SELECTIONS = {}
 FABRIC_EVIDENCE_MODE = os.getenv("FABRIC_EVIDENCE_MODE", "Disabled")
 FABRIC_EVIDENCE_API_GROUP = os.getenv("FABRIC_EVIDENCE_API_GROUP", "networking.re8ch.com")
 FABRIC_EVIDENCE_API_VERSION = os.getenv("FABRIC_EVIDENCE_API_VERSION", "v1alpha2")
@@ -585,11 +589,8 @@ def publish_default_area():
     a distinct set of ExternalDNS-only Ingress objects and provider credentials
     remain outside Public Edge Manager.
     """
-    # Dynamic delegated DNS replaces the legacy singleton publisher.  Retain
-    # the parser for backwards-compatible values, but never elect by node name.
-    if PUBLICATION_ENABLED:
-        print("legacy publication ignored; use delegated dynamic DNS", flush=True)
-    return
+    if not PUBLICATION_ENABLED:
+        return
     adapters = PUBLICATION_ADAPTERS or {
         "legacy": {"provider": "external-dns", "refs": PUBLICATION_REFS}
     }
@@ -599,7 +600,7 @@ def publish_default_area():
         provider = adapter.get("provider", adapter_name)
         for service, ref in adapter.get("refs", {}).items():
             try:
-                selected = next((item for item in ranked(service) if item["state"] == "ready"), None)
+                selected = stable_selected(service, ranked(service), AREA)
                 if not selected:
                     continue
                 path = f"/apis/networking.k8s.io/v1/namespaces/{ref['namespace']}/ingresses/{ref['name']}"
@@ -724,6 +725,56 @@ def ranked(service, request_area=None):
     return sorted(result, key=lambda item: (-item["score"], item["id"]))
 
 
+def stable_selected(service, candidates, request_area=None, timestamp=None):
+    """Return a sticky last-known-good candidate with qualified failover.
+
+    Ranking changes never move a healthy selection. A failed selection remains
+    the last-known-good answer during the grace and replacement qualification
+    windows. This keeps DNS and provider publication on the same stable target.
+    """
+    timestamp = time.time() if timestamp is None else timestamp
+    area = request_area or AREA
+    key = (service, area)
+    ready = [item for item in candidates if item["state"] == "ready"]
+    by_id = {item["id"]: item for item in candidates}
+    with LOCK:
+        state = SELECTIONS.get(key)
+        if state is None:
+            if not ready:
+                return None
+            selected = dict(ready[0])
+            SELECTIONS[key] = {
+                "selected": selected["id"], "snapshot": selected,
+                "selectedAt": timestamp, "unavailableAt": None,
+                "pending": None, "pendingAt": None,
+            }
+            return selected
+
+        current = by_id.get(state["selected"])
+        if current and current["state"] == "ready":
+            state.update(snapshot=dict(current), unavailableAt=None, pending=None, pendingAt=None)
+            return dict(current)
+
+        if state["unavailableAt"] is None:
+            state["unavailableAt"] = timestamp
+        replacement = ready[0] if ready else None
+        if replacement is None:
+            state.update(pending=None, pendingAt=None)
+            return dict(state["snapshot"])
+        if state["pending"] != replacement["id"]:
+            state.update(pending=replacement["id"], pendingAt=timestamp)
+
+        grace_elapsed = timestamp - state["unavailableAt"] >= CANDIDATE_FAILOVER_GRACE_SECONDS
+        ready_elapsed = timestamp - state["pendingAt"] >= CANDIDATE_MIN_READY_SECONDS
+        hold_elapsed = timestamp - state["selectedAt"] >= CANDIDATE_MIN_HOLD_SECONDS
+        if grace_elapsed and ready_elapsed and hold_elapsed:
+            selected = dict(replacement)
+            state.update(selected=selected["id"], snapshot=selected, selectedAt=timestamp,
+                         unavailableAt=None, pending=None, pendingAt=None)
+            return selected
+        return dict(state["snapshot"])
+
+
 def encode_name(name):
     output = bytearray()
     for label in name.rstrip(".").split("."):
@@ -817,18 +868,16 @@ def soa_rr(zone):
 
 
 def service_address_records(name, service, request_area=None):
-    ready = [item for item in ranked(service, request_area) if item["state"] == "ready"]
-    if not ready:
+    selected = stable_selected(service, ranked(service, request_area), request_area)
+    if not selected:
         return []
-    best_score = ready[0]["score"]
     records = []
-    for selected in (item for item in ready if item["score"] == best_score):
-        if selected.get("endpointType") == "HostnameTunnel":
-            records.append(rr(name, 5, 30, encode_name(selected["ip"])))
-            continue
-        address = ipaddress.ip_address(selected["ip"])
-        if address.version == 4:
-            records.append(rr(name, 1, 30, address.packed))
+    if selected.get("endpointType") == "HostnameTunnel":
+        records.append(rr(name, 5, 30, encode_name(selected["ip"])))
+        return records
+    address = ipaddress.ip_address(selected["ip"])
+    if address.version == 4:
+        records.append(rr(name, 1, 30, address.packed))
     return records
 
 
@@ -958,7 +1007,8 @@ class HTTPHandler(BaseHTTPRequestHandler):
         client = self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[0].strip()
         area = client_area(client)
         candidates = ranked(service, area)
-        selected = next((item["id"] for item in candidates if item["state"] == "ready"), "")
+        selected_item = stable_selected(service, candidates, area)
+        selected = selected_item["id"] if selected_item else ""
         payload = json.dumps({
             "version": 1, "generation": int(time.time() // 10 * 10), "service": service,
             "paths": next((item.get("paths", []) for item in SERVICE_DEFINITIONS.values() if item["service"] == service), []),
