@@ -14,16 +14,39 @@
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
     },
-    "authorityNodes": { "type": "object" },
     "services": { "type": "object" },
-    "publicEdges": { "type": "array" },
     "readinessGates": { "type": "object" },
+    "discovery": {
+      "type": "object",
+      "required": ["enabled", "replicas", "intervalSeconds", "probeTimeoutSeconds", "gatewaySelector", "authorityLabel", "ingressLabel"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "replicas": {"type": "integer", "minimum": 2},
+        "intervalSeconds": {"type": "integer", "minimum": 5},
+        "probeTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
+        "defaultCapacityMbps": {"type": "integer", "minimum": 1},
+        "maxNameservers": {"type": "integer", "minimum": 1, "maximum": 3},
+        "gatewayNamespace": {"type": "string"},
+        "gatewaySelector": {"type": "string", "minLength": 3},
+        "authorityLabel": {"type": "string", "minLength": 3},
+        "ingressLabel": {"type": "string", "minLength": 3},
+        "serviceClasses": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "parentZone": {"type": "string"},
+        "childZones": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "cloudflareSecretRef": {
+          "type": "object",
+          "properties": {
+            "namespace": {"type": "string", "minLength": 1},
+            "name": {"type": "string", "minLength": 1},
+            "key": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
     "workload": {
       "type": "object",
       "properties": {
         "hostNetwork": { "type": "boolean" },
-        "dnsCandidateLabel": { "type": "string" },
-        "dnsCandidateValue": { "type": "string", "minLength": 1 },
         "dnsPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "httpPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "containerSecurityContext": { "type": "object" }
@@ -74,7 +97,6 @@
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean" },
-        "publisherNode": { "type": "string" },
         "adapters": {
           "type": "object",
           "additionalProperties": {
@@ -134,10 +156,7 @@
       "if": { "properties": { "enabled": { "const": true } } },
       "then": {
         "properties": {
-          "nameservers": { "minItems": 1 },
-          "authorityNodes": { "minProperties": 1 },
-          "services": { "minProperties": 1 },
-          "publicEdges": { "type": "array" }
+          "services": { "minProperties": 1 }
         }
       }
     },
@@ -153,7 +172,6 @@
         "properties": {
           "publication": {
             "properties": {
-              "publisherNode": { "minLength": 1 },
               "refs": { "type": "object" },
               "adapters": { "type": "object" }
             }

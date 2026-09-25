@@ -15,17 +15,27 @@ api:
   group: networking.re8ch.com
 
 nameservers: []
-authorityNodes: {}
 services: {}
-publicEdges: []
 readinessGates: {}
+
+discovery:
+  enabled: true
+  replicas: 2
+  intervalSeconds: 15
+  probeTimeoutSeconds: 2
+  defaultCapacityMbps: 100
+  maxNameservers: 3
+  gatewayNamespace: ""
+  gatewaySelector: networking.re8ch.com/public-edge-gateway=true
+  authorityLabel: networking.re8ch.com/public-edge-authority-ready
+  ingressLabel: networking.re8ch.com/public-edge-ready
+  serviceClasses: [api, web, registry, db-ro, db-rw]
+  parentZone: ""
+  childZones: []
+  cloudflareSecretRef: {}
 
 workload:
   hostNetwork: true
-  # Optional admission label, used together with the explicit authorityNodes
-  # inventory. Set only after an independent public UDP/TCP 53 check succeeds.
-  dnsCandidateLabel: ""
-  dnsCandidateValue: "true"
   dnsPort: 53
   httpPort: 8080
   priorityClassName: ""
@@ -64,6 +74,7 @@ candidateSelection:
   latencyDivisorMs: 20
   latencyPenaltyCap: 50
   localNodeBonus: 5
+  resolverCidrs: {}
 
 # Optional, provider-neutral network evidence. PublicEdge discovers the CRD by
 # API group/resource and never configures the producing fabric implementation.
@@ -78,7 +89,6 @@ fabricEvidence:
 
 publication:
   enabled: false
-  publisherNode: ""
   # Named provider adapters may publish the same selected edge through
   # independent ExternalDNS-only Ingress objects. Credentials and provider
   # reconciliation remain isolated in their ExternalDNS releases.

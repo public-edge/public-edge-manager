@@ -3,8 +3,8 @@
 Public Edge Manager is an open-source Kubernetes controller and authoritative
 DNS service for selecting healthy public ingress edges by locality, capacity,
 priority, and observed application latency. It is application- and DNS-provider
-agnostic: operators supply their own zones, services, nodes, endpoints, Gateway
-VIPs, and publication integration.
+agnostic: operators supply zones, services and model parameters. Nodes,
+endpoints and Gateway VIPs are discovered from Kubernetes facts.
 
 The repository is the complete build context. It contains the controller source,
 tests, container definition, Helm chart, license, and CI/release workflows. It
@@ -12,16 +12,15 @@ does not require code or ConfigMaps from a separate private repository.
 
 ## How it works
 
-1. Disabled, draining, and unhealthy edges are excluded.
-2. A healthy edge in the authority replica's configured area beats a remote edge.
+1. Nodes with a global ExternalIP and fresh reachable NetworkPathAssessment are discovered automatically.
+2. Programmed Gateway status supplies the canonical VIP; public listeners are verified before an edge is published.
 3. Capacity, priority, application latency, and a small node-local preference
    provide deterministic ordering inside an area.
 4. Optional provider-neutral `NetworkPathAssessment/v1alpha2` evidence excludes
    candidates whose node, freshness, executed-path or reachability evidence is
    unusable. It is an eligibility gate and never contributes a ranking score.
-5. DNS A or CNAME answers publish the best equally scored candidates.
-6. Optional named publication adapters update provider-scoped ExternalDNS-only
-   Ingresses with the selected edge.
+5. ECS, or resolver CIDR locality when ECS is absent, selects the nearest healthy area consistently on every authority.
+6. A generic L4 redirector preserves HTTP/TLS traffic and sends it to the Gateway VIP; Gateway API owns Pod selection and 503 termination.
 
 ### Authoritative DNS zones
 
@@ -54,16 +53,10 @@ dns:
       - {type: CNAME, value: customer.cdn.example., externalCDN: true, provider: example-cdn}
 ```
 
-Public Edge Manager does not configure routers, NAT, BGP, certificates, or
-application Gateways. Those remain explicit operator-owned infrastructure.
-
-`publicEdges` may be empty. In that mode, an external cluster adapter owns the
-`PublicEdge` resources and their lifecycle; the manager consumes those
-declarations and applies its health, evidence, and ranking rules. A Kubernetes
-Node is not automatically a public candidate, and removing a Node does not
-delete a `PublicEdge` resource. The adapter must withdraw obsolete declarations
-and supply any provider-specific node or network qualification. This keeps
-inventory ownership outside the reusable authority.
+Public Edge Manager does not configure provider routers, NAT, BGP, certificates
+or application routes. It derives `PublicEdge` objects from existing Node,
+NetworkPathAssessment and Gateway resources and removes them when evidence
+expires. No node names, public addresses or Pod addresses belong in chart values.
 
 ### Optional network evidence
 
@@ -121,20 +114,18 @@ helm install public-edge-manager \
   --values values-production.yaml
 ```
 
-The chart defaults to `enabled: false`; enabling it requires at least one
-nameserver, authority node, service, and edge. `api.group` is configurable for
+The chart defaults to `enabled: false`; enabling it requires a service directory
+and a startup nameserver fallback. `api.group` is configurable for
 organizations that own a Kubernetes API group. Existing installations can keep
 `networking.re8ch.com` for API compatibility without using any RE8CH service
 domain or infrastructure.
 
 ## Exposure and security model
 
-Production authorities should set `workload.dnsCandidateLabel` and give that
-label only to Nodes present in `authorityNodes` whose public IP has passed an
-independent UDP and TCP port 53 probe. The scheduler requires both the exact
-Node name and the admission label. A local `/healthz` response is process
-health, not proof that the public Internet can reach the authority; keep the
-external probe running after admission and withdraw the label on failure.
+The discovery Deployment runs at least two replicas and elects one writer with
+a Kubernetes Lease. It derives generic ingress and authority labels only after
+the relevant path and public listener probes succeed. The authority DaemonSet
+uses that generic label and contains no hostname affinity.
 
 For an elected NS set, set `dns.nameserversConfigMap` to a ConfigMap in the
 release namespace with a `nameservers.json` key, for example
@@ -155,42 +146,10 @@ Ingress mutation is disabled by default. Enable `publication.enabled` and
 `rbac.mutateIngresses` together only for provider publication. Normal delegated
 authoritative DNS requires read-only Ingress access.
 
-### Multiple DNS publication adapters
-
-Public Edge Manager can fan one selected healthy edge out to multiple named,
-provider-scoped publication objects. Each adapter owns separate
-ExternalDNS-only Ingresses, so credentials, zone filters, ownership registries,
-write policies and failure domains remain isolated in the corresponding
-ExternalDNS release:
-
-```yaml
-publication:
-  enabled: true
-  publisherNode: edge-controller-1
-  adapters:
-    alidns:
-      provider: alibabacloud
-      refs:
-        app: {namespace: dns-publication, name: app-alidns}
-    dnspod:
-      provider: tencent-dnspod
-      refs:
-        app: {namespace: dns-publication, name: app-dnspod}
-    esa:
-      enabled: false
-      provider: alibaba-esa
-      refs:
-        app: {namespace: dns-publication, name: app-esa}
-rbac:
-  mutateIngresses: true
-```
-
-The chart deliberately does not mount cloud credentials or call provider APIs.
-Alibaba Cloud DNS uses ExternalDNS's `alibabacloud` provider, Tencent DNSPod
-uses an ExternalDNS webhook, and ESA requires an ESA-capable ExternalDNS webhook
-or controller. Keep an adapter disabled until its executor, credentials and
-ownership policy have been validated. The deprecated `publication.refs` map is
-still accepted as the single `legacy` adapter.
+Cloudflare parent delegation is optional. When configured, the Lease holder
+publishes stable hash-based NS names and glue immediately after complete UDP and
+TCP probes. A single NS is an allowed degraded state; zero healthy authorities
+preserves the last-known-good ConfigMap and parent delegation.
 
 `readinessGates` can fail a sensitive service closed unless JSON authority
 evidence in a ConfigMap agrees with the ready addresses of an EndpointSlice.

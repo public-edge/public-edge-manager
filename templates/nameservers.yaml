@@ -1,0 +1,7 @@
+{{- if and .Values.enabled .Values.dns.nameserversConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: {{ .Values.dns.nameserversConfigMap }}}
+data:
+  nameservers.json: {{ dict "nameservers" .Values.nameservers | toJson | quote }}
+{{- end }}

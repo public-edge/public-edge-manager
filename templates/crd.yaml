@@ -53,5 +53,13 @@ spec:
                     mode: {type: string, enum: [DirectGateway, RegionalRelay]}
                     originArea: {type: string}
                     originGatewayVIP: {type: string, format: ipv4}
+                gatewayRef:
+                  type: object
+                  properties:
+                    namespace: {type: string}
+                    name: {type: string}
+                discovery:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
             status: {type: object, x-kubernetes-preserve-unknown-fields: true}
 {{- end }}
