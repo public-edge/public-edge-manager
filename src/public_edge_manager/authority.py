@@ -735,7 +735,14 @@ def stable_selected(service, candidates, request_area=None, timestamp=None):
     timestamp = time.time() if timestamp is None else timestamp
     area = request_area or AREA
     key = (service, area)
-    ready = [item for item in candidates if item["state"] == "ready"]
+    # Transport readiness alone is not sufficient for a service answer.  Keep
+    # edge transport and backend health separate in discovery output, but never
+    # publish an edge whose probe for this specific service is failing.  Legacy
+    # callers without serviceBackendReady retain their previous behaviour.
+    ready = [
+        item for item in candidates
+        if item["state"] == "ready" and item.get("serviceBackendReady", True)
+    ]
     by_id = {item["id"]: item for item in candidates}
     with LOCK:
         state = SELECTIONS.get(key)
@@ -751,9 +758,23 @@ def stable_selected(service, candidates, request_area=None, timestamp=None):
             return selected
 
         current = by_id.get(state["selected"])
-        if current and current["state"] == "ready":
+        if (current and current["state"] == "ready"
+                and current.get("serviceBackendReady", True)):
             state.update(snapshot=dict(current), unavailableAt=None, pending=None, pendingAt=None)
             return dict(current)
+
+        # A failed service probe is positive evidence that this endpoint cannot
+        # serve the requested hostname (for example, TLS accepts TCP and then
+        # closes during the handshake).  Do not retain that address through the
+        # transport failover grace window.
+        if current and current.get("serviceBackendReady") is False:
+            if not ready:
+                state.update(unavailableAt=timestamp, pending=None, pendingAt=None)
+                return None
+            selected = dict(ready[0])
+            state.update(selected=selected["id"], snapshot=selected, selectedAt=timestamp,
+                         unavailableAt=None, pending=None, pendingAt=None)
+            return selected
 
         if state["unavailableAt"] is None:
             state["unavailableAt"] = timestamp

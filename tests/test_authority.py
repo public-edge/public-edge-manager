@@ -541,6 +541,25 @@ class AuthorityTests(unittest.TestCase):
             self.assertEqual(authority.stable_selected("app", [edge_b, failed_a], "GLOBAL", 39)["id"], "edge-a")
             self.assertEqual(authority.stable_selected("app", [edge_b, failed_a], "GLOBAL", 60)["id"], "edge-b")
 
+    def test_service_probe_failure_immediately_selects_healthy_edge(self):
+        edge_a = {"id": "edge-a", "ip": "192.0.2.10", "state": "ready", "score": 20,
+                  "serviceBackendReady": True}
+        failed_a = dict(edge_a, serviceBackendReady=False)
+        edge_b = {"id": "edge-b", "ip": "192.0.2.11", "state": "ready", "score": 10,
+                  "serviceBackendReady": True}
+        authority.stable_selected("app", [edge_a, edge_b], "US", 0)
+        self.assertEqual(
+            authority.stable_selected("app", [failed_a, edge_b], "US", 1)["id"],
+            "edge-b",
+        )
+
+    def test_service_probe_failure_fails_closed_without_healthy_edge(self):
+        edge_a = {"id": "edge-a", "ip": "192.0.2.10", "state": "ready", "score": 20,
+                  "serviceBackendReady": True}
+        failed_a = dict(edge_a, serviceBackendReady=False)
+        authority.stable_selected("app", [edge_a], "US", 0)
+        self.assertIsNone(authority.stable_selected("app", [failed_a], "US", 1))
+
     def test_disabled_publication_adapter_is_skipped(self):
         adapters = {
             "esa": {
