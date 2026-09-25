@@ -17,6 +17,8 @@ class AuthorityTests(unittest.TestCase):
     def setUp(self):
         authority.RECORDS_FILE = ""
         authority.RECORDS_DIGEST = ""
+        authority.RUNTIME_FILE = ""
+        authority.RUNTIME_MODEL = {}
         authority.NAMESERVERS_FILE = ""
         authority.NAMESERVERS_DIGEST = ""
         authority.SERVICE_DEFINITIONS = {
@@ -83,6 +85,27 @@ class AuthorityTests(unittest.TestCase):
             stream.flush()
             self.assertFalse(authority.reload_records())
             self.assertIn("app.example.com.", authority.SERVICES)
+
+    def test_runtime_overlay_registers_service_routes_and_model_without_git_values(self):
+        with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as records, \
+             tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as runtime:
+            authority.RECORDS_FILE = records.name
+            authority.RUNTIME_FILE = runtime.name
+            json.dump({"services": authority.SERVICE_DEFINITIONS, "zones": ["example.com."],
+                       "externalRecords": {}}, records)
+            json.dump({
+                "services": {"runtime.example.com.": {
+                    "service": "runtime", "class": "api", "probePath": "/ready"
+                }},
+                "routes": {"runtime": [{"via": "canonical-gateway"}]},
+                "model": {"capacityWeight": 17},
+            }, runtime)
+            records.flush(); runtime.flush()
+            self.assertTrue(authority.reload_records())
+            self.assertEqual(authority.SERVICES["runtime.example.com."], "runtime")
+            self.assertEqual(authority.SERVICE_DEFINITIONS["runtime.example.com."]["paths"],
+                             [{"via": "canonical-gateway"}])
+            self.assertEqual(authority.RUNTIME_MODEL["capacityWeight"], 17)
 
     @staticmethod
     def dns_query(name, qtype):

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "public-edge-manager"
-version = "0.6.0"
+version = "0.6.1"
 description = "Region- and capacity-aware public edge health and DNS authority for Kubernetes"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -19,6 +19,7 @@ classifiers = [
 
 [project.scripts]
 public-edge-manager = "public_edge_manager.authority:main"
+edgectl = "public_edge_manager.edgectl:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

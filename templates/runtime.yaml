@@ -1,0 +1,74 @@
+{{- if .Values.enabled }}
+{{- $initial := "{\"model\":{},\"routes\":{},\"services\":{}}" }}
+{{- $existing := lookup "v1" "ConfigMap" .Release.Namespace .Values.runtime.configMapName }}
+{{- $runtime := $initial }}
+{{- if and $existing $existing.data (hasKey $existing.data "runtime.json") }}
+{{- $runtime = index $existing.data "runtime.json" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.runtime.configMapName }}
+  annotations: {helm.sh/resource-policy: keep}
+data:
+  runtime.json: {{ $runtime | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: {{ include "public-edge-manager.name" . }}-cli}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}-cli}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}-cli}}
+    spec:
+      serviceAccountName: {{ include "public-edge-manager.name" . }}-cli
+      containers:
+        - name: cli
+          image: {{ include "public-edge-manager.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [sh, -c, "trap : TERM INT; sleep infinity & wait"]
+          env:
+            - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
+            - {name: API_GROUP, value: {{ .Values.api.group | quote }}}
+            - {name: RUNTIME_CONFIGMAP, value: {{ .Values.runtime.configMapName | quote }}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 65532}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: {{ include "public-edge-manager.name" . }}-cli}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: {{ include "public-edge-manager.name" . }}-cli}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [{{ .Values.runtime.configMapName }}]
+    verbs: [get, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: {{ include "public-edge-manager.name" . }}-cli}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ include "public-edge-manager.name" . }}-cli}
+subjects:
+  - {kind: ServiceAccount, name: {{ include "public-edge-manager.name" . }}-cli, namespace: {{ .Release.Namespace }} }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: {{ include "public-edge-manager.name" . }}-cli-read}
+rules:
+  - apiGroups: [{{ .Values.api.group | quote }}]
+    resources: [publicedges]
+    verbs: [get, list, watch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gateways]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: {{ include "public-edge-manager.name" . }}-cli-read}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ include "public-edge-manager.name" . }}-cli-read}
+subjects:
+  - {kind: ServiceAccount, name: {{ include "public-edge-manager.name" . }}-cli, namespace: {{ .Release.Namespace }} }
+{{- end }}

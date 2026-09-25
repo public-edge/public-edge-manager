@@ -37,6 +37,7 @@ spec:
           envFrom: [{configMapRef: {name: {{ include "public-edge-manager.name" . }}}}]
           env:
             - {name: RECORDS_FILE, value: /etc/public-edge-records/records.json}
+            - {name: RUNTIME_FILE, value: /etc/public-edge-runtime/runtime.json}
             {{- if .Values.dns.nameserversConfigMap }}
             - {name: NAMESERVERS_FILE, value: /etc/public-edge-nameservers/nameservers.json}
             {{- end }}
@@ -53,6 +54,7 @@ spec:
             - {name: http, containerPort: {{ .Values.workload.httpPort }}}
           volumeMounts:
             - {name: records, mountPath: /etc/public-edge-records, readOnly: true}
+            - {name: runtime, mountPath: /etc/public-edge-runtime, readOnly: true}
             {{- if .Values.dns.nameserversConfigMap }}
             - {name: nameservers, mountPath: /etc/public-edge-nameservers, readOnly: true}
             {{- end }}
@@ -63,6 +65,8 @@ spec:
       volumes:
         - name: records
           configMap: {name: {{ include "public-edge-manager.name" . }}-records}
+        - name: runtime
+          configMap: {name: {{ .Values.runtime.configMapName }} }
         {{- if .Values.dns.nameserversConfigMap }}
         - name: nameservers
           configMap: {name: {{ .Values.dns.nameserversConfigMap }}}

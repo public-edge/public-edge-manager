@@ -69,7 +69,9 @@ FABRIC_API_AVAILABLE = False
 FABRIC_NODE_READINESS = {}
 FABRIC_NODE_API_AVAILABLE = False
 RECORDS_FILE = os.getenv("RECORDS_FILE", "")
+RUNTIME_FILE = os.getenv("RUNTIME_FILE", "")
 RECORDS_DIGEST = ""
+RUNTIME_MODEL = {}
 
 
 def reload_nameservers():
@@ -105,17 +107,36 @@ def reload_nameservers():
 
 def reload_records():
     """Atomically accept a projected ConfigMap update; retain last good data on error."""
-    global RECORDS_DIGEST, SERVICE_DEFINITIONS, SERVICES, AUTHORITY_ZONES, EXTERNAL_RECORDS
+    global RECORDS_DIGEST, SERVICE_DEFINITIONS, SERVICES, AUTHORITY_ZONES, EXTERNAL_RECORDS, RUNTIME_MODEL
     if not RECORDS_FILE:
         return False
     try:
         with open(RECORDS_FILE, "rb") as stream:
             raw = stream.read()
-        digest = hashlib.sha256(raw).hexdigest()
+        payload = json.loads(raw)
+        runtime = {"services": {}, "routes": {}, "model": {}}
+        runtime_raw = b""
+        if RUNTIME_FILE:
+            try:
+                with open(RUNTIME_FILE, "rb") as stream:
+                    runtime_raw = stream.read()
+                runtime.update(json.loads(runtime_raw or b"{}"))
+            except FileNotFoundError:
+                pass
+        digest = hashlib.sha256(raw + b"\0" + runtime_raw).hexdigest()
         if digest == RECORDS_DIGEST:
             return False
-        payload = json.loads(raw)
-        definitions = payload["services"]
+        definitions = dict(payload["services"])
+        for name, definition in runtime.get("services", {}).items():
+            fqdn = f"{name.rstrip('.').lower()}."
+            if definition is None:
+                definitions.pop(fqdn, None)
+            else:
+                definitions[fqdn] = definition
+        for service, paths in runtime.get("routes", {}).items():
+            for definition in definitions.values():
+                if definition.get("service") == service:
+                    definition["paths"] = paths
         zones = payload["zones"]
         external = payload["externalRecords"]
         if not isinstance(definitions, dict) or not definitions or not isinstance(zones, list) or not isinstance(external, dict):
@@ -140,6 +161,8 @@ def reload_records():
                     ipaddress.IPv4Address(item["value"])
                 else:
                     ipaddress.IPv6Address(item["value"])
+        if not isinstance(runtime.get("model", {}), dict):
+            raise ValueError("runtime model must be an object")
         with LOCK:
             unchanged_services = {
                 definition["service"] for name, definition in definitions.items()
@@ -150,6 +173,7 @@ def reload_records():
             SERVICES = services
             AUTHORITY_ZONES = authority_zones
             EXTERNAL_RECORDS = external_records
+            RUNTIME_MODEL = runtime.get("model", {})
             HEALTH.clear()
             HEALTH.update({service: previous_health.get(service, {}) for service in services.values()})
             RECORDS_DIGEST = digest
@@ -665,13 +689,19 @@ def ranked(service, request_area=None):
             # healthy US relay even when the origin is in CN. Inside one area,
             # capacity is intentionally the dominant signal so clients reach
             # the strongest local edge instead of hairpinning through a remote one.
-            score = int(candidate.get("capacityMbps", 1)) * CANDIDATE_CAPACITY_WEIGHT
+            capacity_weight = int(RUNTIME_MODEL.get("capacityWeight", CANDIDATE_CAPACITY_WEIGHT))
+            local_area_bonus = int(RUNTIME_MODEL.get("localAreaBonus", CANDIDATE_LOCAL_AREA_BONUS))
+            priority_weight = int(RUNTIME_MODEL.get("priorityWeight", CANDIDATE_PRIORITY_WEIGHT))
+            latency_divisor = max(1, int(RUNTIME_MODEL.get("latencyDivisorMs", CANDIDATE_LATENCY_DIVISOR_MS)))
+            latency_cap = max(0, int(RUNTIME_MODEL.get("latencyPenaltyCap", CANDIDATE_LATENCY_PENALTY_CAP)))
+            local_node_bonus = int(RUNTIME_MODEL.get("localNodeBonus", CANDIDATE_LOCAL_NODE_BONUS))
+            score = int(candidate.get("capacityMbps", 1)) * capacity_weight
             if candidate.get("area", candidate["region"]) == area:
-                score += CANDIDATE_LOCAL_AREA_BONUS
-            score -= int(regional_priority) * CANDIDATE_PRIORITY_WEIGHT
-            score -= min(int(observed.get("latencyMs", 0)) // CANDIDATE_LATENCY_DIVISOR_MS, CANDIDATE_LATENCY_PENALTY_CAP)
+                score += local_area_bonus
+            score -= int(regional_priority) * priority_weight
+            score -= min(int(observed.get("latencyMs", 0)) // latency_divisor, latency_cap)
             if candidate["id"] == NODE:
-                score += CANDIDATE_LOCAL_NODE_BONUS
+                score += local_node_bonus
         result.append({
             "id": candidate["id"], "region": candidate["region"],
             "area": candidate.get("area", candidate["region"]), "ip": candidate["ip"],
@@ -935,6 +965,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             "selected": selected, "ttlSeconds": 30, "servedBy": NODE,
             "client": client, "clientArea": area,
             "candidates": candidates,
+            "runtimeModel": RUNTIME_MODEL,
         }, separators=(",", ":")).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

@@ -122,6 +122,24 @@ domain or infrastructure.
 
 ## Exposure and security model
 
+### Cluster-local runtime CLI
+
+Service domains, scoring overrides and routing metadata can be changed at
+runtime without editing Helm values. The chart deploys a least-privilege CLI
+pod and preserves its runtime ConfigMap across upgrades:
+
+```sh
+kubectl -n regional-routing exec deploy/public-edge-manager-cli -- \
+  python -m public_edge_manager.edgectl service-register app.example.com \
+  --service app --class web --probe-path /healthz --accepted-statuses 200,401
+kubectl -n regional-routing exec deploy/public-edge-manager-cli -- \
+  python -m public_edge_manager.edgectl model-set capacityWeight 12
+kubectl -n regional-routing exec deploy/public-edge-manager-cli -- \
+  python -m public_edge_manager.edgectl route-set app '{"via":"canonical-gateway"}'
+kubectl -n regional-routing exec deploy/public-edge-manager-cli -- \
+  python -m public_edge_manager.edgectl status
+```
+
 The discovery Deployment runs at least two replicas and elects one writer with
 a Kubernetes Lease. It derives generic ingress and authority labels only after
 the relevant path and public listener probes succeed. The authority DaemonSet

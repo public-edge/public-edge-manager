@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/public-edge/public-edge-manager
-  tag: "0.5.5"
+  tag: "0.6.1"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -33,6 +33,9 @@ discovery:
   parentZone: ""
   childZones: []
   cloudflareSecretRef: {}
+
+runtime:
+  configMapName: public-edge-runtime
 
 workload:
   hostNetwork: true
