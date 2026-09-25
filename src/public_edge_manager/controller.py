@@ -49,7 +49,8 @@ LEASE_NAME = os.getenv("LEASE_NAME", "public-edge-discovery")
 
 
 def now_rfc3339():
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    # coordination.k8s.io MicroTime requires exactly six fractional digits.
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def parse_time(value):
