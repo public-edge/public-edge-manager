@@ -14,6 +14,12 @@ def node(name="edge", uid="uid-1", address="8.8.8.8", region="us-west"):
     }
 
 
+def node_with_capacity(value):
+    item = node()
+    item["metadata"]["annotations"] = {"networking.re8ch.com/capacity-mbps": str(value)}
+    return item
+
+
 def assessment(name="edge", state="Ready", reachable=True):
     return {"metadata": {"name": "node-" + name},
             "spec": {"subjectRef": {"kind": "Node", "name": name}},
@@ -35,6 +41,10 @@ class ControllerTests(unittest.TestCase):
         stale = assessment()
         stale["status"]["validUntil"] = "2000-01-01T00:00:00Z"
         self.assertFalse(controller.assessment_ready(stale, time.time()))
+
+    def test_capacity_annotation_overrides_default(self):
+        self.assertEqual(controller.capacity(node_with_capacity(3)), 3)
+        self.assertLess(controller.capacity(node_with_capacity(3)), controller.MINIMUM_CAPACITY)
 
     def test_names_are_stable_hashes_and_do_not_embed_node_name(self):
         with mock.patch.object(controller, "PARENT_ZONE", "example.com"):

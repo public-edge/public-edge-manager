@@ -32,6 +32,7 @@
         "intervalSeconds": {"type": "integer", "minimum": 5},
         "probeTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
         "defaultCapacityMbps": {"type": "integer", "minimum": 1},
+        "minimumCapacityMbps": {"type": "integer", "minimum": 1},
         "maxNameservers": {"type": "integer", "minimum": 1, "maximum": 3},
         "gatewayNamespace": {"type": "string"},
         "gatewaySelector": {"type": "string", "minLength": 3},
