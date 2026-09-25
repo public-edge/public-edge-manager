@@ -38,6 +38,75 @@ entries:
           description: Expose probe.maxWorkers for installations with different service counts and CPU budgets.
       artifacthub.io/images: |
         - name: public-edge-manager
+          image: ghcr.io/public-edge/public-edge-manager:0.6.7
+          platforms:
+            - linux/amd64
+            - linux/arm64
+      artifacthub.io/license: Apache-2.0
+      artifacthub.io/links: |
+        - name: source
+          url: https://github.com/public-edge/public-edge-manager
+        - name: support
+          url: https://github.com/public-edge/public-edge-manager/issues
+    apiVersion: v2
+    appVersion: 0.6.7
+    created: "2026-09-25T19:59:17.375407452Z"
+    description: Region- and capacity-aware PublicEdge health authority for Kubernetes.
+    digest: 653c6f54cd832baf87a8adb12d40cb4084c31a0aa68b9c879aaac0962fa0ee44
+    home: https://github.com/public-edge/public-edge-manager
+    keywords:
+    - public-edge
+    - dns
+    - external-dns
+    - gateway-api
+    - cilium
+    - geo-routing
+    maintainers:
+    - name: RE8CH Platform
+    name: public-edge-manager
+    sources:
+    - https://github.com/public-edge/public-edge-manager
+    type: application
+    urls:
+    - https://github.com/public-edge/public-edge-manager/releases/download/v0.6.7/public-edge-manager-0.6.7.tgz
+    version: 0.6.7
+  - annotations:
+      artifacthub.io/category: networking
+      artifacthub.io/changes: |
+        - kind: added
+          description: Publish a sticky last-known-good exit through provider-scoped references, including PowerDNS via ExternalDNS RFC2136.
+        - kind: fixed
+          description: Prevent healthy public exits from changing when candidate scores fluctuate and qualify replacements before failover.
+        - kind: fixed
+          description: Avoid reserving the authority health port on host-network nodes; probes and Services use numeric targets.
+        - kind: fixed
+          description: Avoid reserving DNS host ports in the scheduler while the authority binds its dynamically derived node address.
+        - kind: fixed
+          description: Apply the configured container security context to the host-network redirector so privileged ports can bind where required.
+        - kind: added
+          description: Discover PublicEdges from Node ExternalIP, NetworkPathAssessment and Gateway status without a node inventory.
+        - kind: added
+          description: Run a generic L4 redirector and dynamically elect authoritative DNS replicas with Lease-based publication leadership.
+        - kind: changed
+          description: Select regional answers from EDNS Client Subnet or resolver CIDR locality instead of the authority node identity.
+        - kind: changed
+          description: Reload delegated zones, service records and external CDN records from a separate mounted ConfigMap without rolling DNS pods.
+        - kind: fixed
+          description: Point the chart at the current public-edge GitHub and GHCR organization.
+        - kind: fixed
+          description: Fail closed on empty inventory and stale service probe evidence.
+        - kind: added
+          description: Serve delegated zones and explicitly marked external CDN records.
+        - kind: fixed
+          description: Restart authority pods when ConfigMap values, including the publisher node, change.
+        - kind: changed
+          description: Consume NetworkPathAssessment v1alpha2 strictly as a freshness, readiness and reachability eligibility gate; remove O/S/I ranking weights.
+        - kind: fixed
+          description: Bound concurrent endpoint sampling so probe load cannot starve health and discovery requests.
+        - kind: added
+          description: Expose probe.maxWorkers for installations with different service counts and CPU budgets.
+      artifacthub.io/images: |
+        - name: public-edge-manager
           image: ghcr.io/public-edge/public-edge-manager:0.6.6
           platforms:
             - linux/amd64
@@ -877,4 +946,4 @@ entries:
     urls:
     - https://re8ch.github.io/public-edge-manager/public-edge-manager-0.2.0.tgz
     version: 0.2.0
-generated: "2026-09-25T18:41:42.112530387Z"
+generated: "2026-09-25T19:59:17.374521811Z"
