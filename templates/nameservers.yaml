@@ -1,0 +1,15 @@
+{{- if and .Values.enabled .Values.dns.nameserversConfigMap }}
+{{- $bootstrap := dict "nameservers" .Values.nameservers | toJson }}
+{{- $existing := lookup "v1" "ConfigMap" .Release.Namespace .Values.dns.nameserversConfigMap }}
+{{- $nameservers := $bootstrap }}
+{{- if and $existing $existing.data (hasKey $existing.data "nameservers.json") }}
+{{- $nameservers = index $existing.data "nameservers.json" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: {{ .Values.dns.nameserversConfigMap }}}
+data:
+  # Preserve the controller's last-known-good set across Helm upgrades. Values
+  # are used only when the ConfigMap does not exist yet.
+  nameservers.json: {{ $nameservers | quote }}
+{{- end }}

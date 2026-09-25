@@ -8,7 +8,6 @@ data:
   SOA_RNAME: {{ .Values.dns.soaRname | quote }}
   PROBE_USER_AGENT: {{ .Values.probe.userAgent | quote }}
   PUBLICATION_ENABLED: {{ .Values.publication.enabled | quote }}
-  PUBLISHER_NODE: {{ .Values.publication.publisherNode | quote }}
   PUBLICATION_REFS_JSON: {{ .Values.publication.refs | toJson | quote }}
   PUBLICATION_ADAPTERS_JSON: {{ .Values.publication.adapters | toJson | quote }}
   READINESS_GATES_JSON: {{ .Values.readinessGates | toJson | quote }}
@@ -18,17 +17,11 @@ data:
   CANDIDATE_LATENCY_DIVISOR_MS: {{ .Values.candidateSelection.latencyDivisorMs | quote }}
   CANDIDATE_LATENCY_PENALTY_CAP: {{ .Values.candidateSelection.latencyPenaltyCap | quote }}
   CANDIDATE_LOCAL_NODE_BONUS: {{ .Values.candidateSelection.localNodeBonus | quote }}
+  CLIENT_AREA_CIDRS_JSON: {{ .Values.candidateSelection.resolverCidrs | toJson | quote }}
   FABRIC_EVIDENCE_MODE: {{ .Values.fabricEvidence.mode | quote }}
   FABRIC_EVIDENCE_API_GROUP: {{ .Values.fabricEvidence.apiGroup | quote }}
   FABRIC_EVIDENCE_API_VERSION: {{ .Values.fabricEvidence.apiVersion | quote }}
   FABRIC_EVIDENCE_RESOURCE: {{ .Values.fabricEvidence.resource | quote }}
   FABRIC_EVIDENCE_ALLOWED_STATES_JSON: {{ .Values.fabricEvidence.allowedStates | toJson | quote }}
   FABRIC_REQUIRE_NODE_READY: {{ .Values.fabricEvidence.requireNodeReady | quote }}
-{{- $bind := dict -}}{{- $regions := dict -}}{{- $areas := dict -}}
-{{- range $node, $v := .Values.authorityNodes -}}
-{{- $_ := set $bind $node $v.bindAddress -}}{{- $_ := set $regions $node $v.region -}}{{- $_ := set $areas $node $v.area -}}
-{{- end }}
-  BIND_ADDRESSES_JSON: {{ $bind | toJson | quote }}
-  AUTHORITY_REGIONS_JSON: {{ $regions | toJson | quote }}
-  AUTHORITY_AREAS_JSON: {{ $areas | toJson | quote }}
 {{- end }}

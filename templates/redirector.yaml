@@ -1,0 +1,45 @@
+{{- if and .Values.enabled .Values.discovery.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: {{ include "public-edge-manager.name" . }}-redirector}
+spec:
+  selector: {matchLabels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}-redirector}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}-redirector}}
+    spec:
+      serviceAccountName: {{ include "public-edge-manager.name" . }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      priorityClassName: {{ default "system-node-critical" .Values.workload.priorityClassName }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: {{ .Values.discovery.ingressLabel }}
+                    operator: In
+                    values: ["true"]
+      {{- with .Values.workload.tolerations }}
+      tolerations: {{ . | toYaml | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: redirector
+          image: {{ include "public-edge-manager.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [python, -m, public_edge_manager.redirector]
+          env:
+            - {name: API_GROUP, value: {{ .Values.api.group | quote }}}
+            - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+          ports:
+            - {name: http, containerPort: 80, hostPort: 80, protocol: TCP}
+            - {name: https, containerPort: 443, hostPort: 443, protocol: TCP}
+          readinessProbe: {tcpSocket: {port: http}, periodSeconds: 5}
+          resources: {{ .Values.resources | toYaml | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {add: [NET_BIND_SERVICE], drop: [ALL]}
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+{{- end }}

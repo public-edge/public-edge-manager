@@ -459,20 +459,18 @@ class AuthorityTests(unittest.TestCase):
             "observedAt": 123, "failure": "unexpected status",
         }}}
         with mock.patch.object(authority, "NODE", "publisher"), \
-             mock.patch.object(authority, "PUBLISHER_NODE", "publisher"), \
              mock.patch.object(authority, "KUBERNETES_API", "kubernetes"), \
              mock.patch.object(authority, "kubernetes_patch") as patch:
             authority.publish_edge_statuses()
         path, payload = patch.call_args.args
         self.assertEqual(path, "/apis/networking.re8ch.com/v1alpha1/publicedges/edge-a/status")
-        self.assertEqual(payload["status"]["conditions"][0]["status"], "False")
+        self.assertEqual(payload["status"]["backendConditions"][0]["status"], "False")
         self.assertEqual(payload["status"]["services"]["app"]["statusCode"], 404)
         self.assertIsNone(payload["status"]["networkEvidence"]["score"])
 
     def test_legacy_publication_is_disabled_by_default(self):
         with mock.patch.object(authority, "PUBLICATION_ENABLED", False), \
              mock.patch.object(authority, "NODE", "publisher"), \
-             mock.patch.object(authority, "PUBLISHER_NODE", "publisher"), \
              mock.patch.object(authority, "PUBLICATION_REFS", {"app": {"namespace": "default", "name": "app"}}), \
              mock.patch.object(authority, "kubernetes_get") as get:
             authority.publish_default_area()
@@ -492,22 +490,12 @@ class AuthorityTests(unittest.TestCase):
         selected = {"id": "edge-a", "ip": "192.0.2.10", "state": "ready"}
         with mock.patch.object(authority, "PUBLICATION_ENABLED", True), \
              mock.patch.object(authority, "NODE", "publisher"), \
-             mock.patch.object(authority, "PUBLISHER_NODE", "publisher"), \
              mock.patch.object(authority, "PUBLICATION_ADAPTERS", adapters), \
              mock.patch.object(authority, "ranked", return_value=[selected]), \
              mock.patch.object(authority, "kubernetes_get", return_value={"metadata": {"annotations": {}}}), \
              mock.patch.object(authority, "kubernetes_patch") as patch:
             authority.publish_default_area()
-        self.assertEqual(patch.call_count, 2)
-        paths = {call.args[0] for call in patch.call_args_list}
-        self.assertEqual(paths, {
-            "/apis/networking.k8s.io/v1/namespaces/dns/ingresses/app-alidns",
-            "/apis/networking.k8s.io/v1/namespaces/dns/ingresses/app-dnspod",
-        })
-        annotations = [call.args[1]["metadata"]["annotations"] for call in patch.call_args_list]
-        self.assertEqual({item[f"{authority.API_GROUP}/dns-provider"] for item in annotations}, {
-            "alibabacloud", "tencent-dnspod",
-        })
+        patch.assert_not_called()
 
     def test_disabled_publication_adapter_is_skipped(self):
         adapters = {
@@ -519,7 +507,6 @@ class AuthorityTests(unittest.TestCase):
         }
         with mock.patch.object(authority, "PUBLICATION_ENABLED", True), \
              mock.patch.object(authority, "NODE", "publisher"), \
-             mock.patch.object(authority, "PUBLISHER_NODE", "publisher"), \
              mock.patch.object(authority, "PUBLICATION_ADAPTERS", adapters), \
              mock.patch.object(authority, "kubernetes_get") as get:
             authority.publish_default_area()
@@ -545,7 +532,6 @@ class AuthorityTests(unittest.TestCase):
         authority.HEALTH = {"app": {"edge-a": {"ready": True}}}
         with mock.patch.object(authority, "API_GROUP", "networking.example.org"), \
              mock.patch.object(authority, "NODE", "publisher"), \
-             mock.patch.object(authority, "PUBLISHER_NODE", "publisher"), \
              mock.patch.object(authority, "KUBERNETES_API", "kubernetes"), \
              mock.patch.object(authority, "kubernetes_patch") as patch:
             authority.publish_edge_statuses()

@@ -19,21 +19,14 @@ spec:
       {{- with .Values.workload.priorityClassName }}
       priorityClassName: {{ . }}
       {{- end }}
-      {{- if .Values.authorityNodes }}
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: kubernetes.io/hostname
+                  - key: {{ .Values.discovery.authorityLabel }}
                     operator: In
-                    values: {{ keys .Values.authorityNodes | toJson }}
-                  {{- if .Values.workload.dnsCandidateLabel }}
-                  - key: {{ .Values.workload.dnsCandidateLabel }}
-                    operator: In
-                    values: [{{ .Values.workload.dnsCandidateValue | quote }}]
-                  {{- end }}
-      {{- end }}
+                    values: ["true"]
       {{- with .Values.workload.tolerations }}
       tolerations: {{ . | toYaml | nindent 8 }}
       {{- end }}

@@ -2,8 +2,8 @@ apiVersion: v2
 name: public-edge-manager
 description: Region- and capacity-aware PublicEdge health authority for Kubernetes.
 type: application
-version: 0.5.5
-appVersion: "0.5.5"
+version: 0.6.0
+appVersion: "0.6.0"
 keywords: [public-edge, dns, external-dns, gateway-api, cilium, geo-routing]
 maintainers:
   - name: RE8CH Platform
@@ -13,6 +13,12 @@ annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/category: networking
   artifacthub.io/changes: |
+    - kind: added
+      description: Discover PublicEdges from Node ExternalIP, NetworkPathAssessment and Gateway status without a node inventory.
+    - kind: added
+      description: Run a generic L4 redirector and dynamically elect authoritative DNS replicas with Lease-based publication leadership.
+    - kind: changed
+      description: Select regional answers from EDNS Client Subnet or resolver CIDR locality instead of the authority node identity.
     - kind: changed
       description: Reload delegated zones, service records and external CDN records from a separate mounted ConfigMap without rolling DNS pods.
     - kind: fixed

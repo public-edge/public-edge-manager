@@ -1,23 +1,19 @@
 enabled: true
 
-nameservers: [ns1.edge.example., ns2.edge.example.]
+nameservers: [ns-bootstrap.edge.example.]
 dns:
   soaRname: hostmaster.edge.example.
   zones: [edge.example.]
+  nameserversConfigMap: public-edge-nameservers
 
-authorityNodes:
-  edge-authority-a: {bindAddress: 192.0.2.53, area: eu, region: eu-west}
+discovery:
+  parentZone: example.
+  childZones: [edge.example]
+  gatewaySelector: example.com/public-edge-gateway=true
 
 services:
   app.example.com.: {service: app, class: web, probePath: /healthz}
 
-publicEdges:
-  - name: edge-eu-west
-    area: eu
-    region: eu-west
-    nodeName: edge-authority-a
-    endpoint: {type: PublicIP, value: 192.0.2.80}
-    gatewayVIP: 10.0.0.80
-    capacityMbps: 1000
-    serviceClasses: [web]
-    forwarding: {mode: DirectGateway}
+fabricEvidence:
+  mode: Required
+  requireNodeReady: false

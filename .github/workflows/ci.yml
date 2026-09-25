@@ -32,14 +32,13 @@ jobs:
           helm lint .
           helm lint . -f examples/values-example.yaml
           helm template public-edge-manager . -f examples/values-example.yaml >/dev/null
-          helm lint . -f examples/values-example.yaml --set-json 'publicEdges=[]'
-          external_candidates=$(helm template public-edge-manager . -f examples/values-example.yaml --set-json 'publicEdges=[]')
-          if printf '%s\n' "$external_candidates" | grep -q '^kind: PublicEdge$'; then
-            echo 'external candidate mode must not render PublicEdge resources'
+          rendered=$(helm template public-edge-manager . -f examples/values-example.yaml)
+          if printf '%s\n' "$rendered" | grep -q -E 'edge-authority-a|192\.0\.2\.|10\.0\.0\.'; then
+            echo 'dynamic mode must not render node inventory or fixed edge addresses'
             exit 1
           fi
           before=$(helm template public-edge-manager . -f examples/values-example.yaml | sed -n 's/^[[:space:]]*checksum\/config: //p' | head -n 1)
-          after=$(helm template public-edge-manager . -f examples/values-example.yaml --set publication.publisherNode=alternate | sed -n 's/^[[:space:]]*checksum\/config: //p' | head -n 1)
+          after=$(helm template public-edge-manager . -f examples/values-example.yaml --set candidateSelection.capacityWeight=11 | sed -n 's/^[[:space:]]*checksum\/config: //p' | head -n 1)
           test -n "$before" && test -n "$after" && test "$before" != "$after"
           record_only=$(helm template public-edge-manager . -f examples/values-example.yaml --set 'dns.zones[0]=other.example.' | sed -n 's/^[[:space:]]*checksum\/config: //p' | head -n 1)
           test "$before" = "$record_only"

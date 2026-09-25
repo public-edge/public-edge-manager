@@ -38,16 +38,14 @@ EXTERNAL_RECORDS = {
 CANDIDATES = json.loads(os.getenv("CANDIDATES_JSON", "[]"))
 SERVICE_DEFINITIONS = json.loads(os.getenv("SERVICES_JSON", "{}"))
 SERVICES = {name: definition["service"] for name, definition in SERVICE_DEFINITIONS.items()}
-AUTHORITY_REGIONS = json.loads(os.getenv("AUTHORITY_REGIONS_JSON", "{}"))
-AUTHORITY_AREAS = json.loads(os.getenv("AUTHORITY_AREAS_JSON", "{}"))
-REGION = AUTHORITY_REGIONS.get(NODE, next((item["region"] for item in CANDIDATES if item["id"] == NODE), "unknown"))
-AREA = AUTHORITY_AREAS.get(NODE, next((item.get("area", item["region"]) for item in CANDIDATES if item["id"] == NODE), REGION))
+REGION = "unknown"
+AREA = "GLOBAL"
+CLIENT_AREA_CIDRS = json.loads(os.getenv("CLIENT_AREA_CIDRS_JSON", "{}"))
 LOCK = threading.Lock()
 HEALTH = {service: {} for service in SERVICES.values()}
 KUBERNETES_API = os.getenv("KUBERNETES_SERVICE_HOST", "")
 API_GROUP = os.getenv("API_GROUP", "networking.re8ch.com")
 SERVICE_ACCOUNT = "/var/run/secrets/kubernetes.io/serviceaccount"
-PUBLISHER_NODE = os.getenv("PUBLISHER_NODE", "")
 PUBLICATION_REFS = json.loads(os.getenv("PUBLICATION_REFS_JSON", "{}"))
 PUBLICATION_ADAPTERS = json.loads(os.getenv("PUBLICATION_ADAPTERS_JSON", "{}"))
 PUBLICATION_ENABLED = os.getenv("PUBLICATION_ENABLED", "false").lower() == "true"
@@ -259,6 +257,9 @@ def candidates_from_public_edges():
             "capacityMbps": spec.get("capacityMbps", 1),
             "priorityByRegion": spec.get("priorityByRegion", {}),
             "forwarding": spec.get("forwarding", {"mode": "DirectGateway"}),
+            "edgeReady": (item.get("status", {}).get("gatewayPath", {}).get("reachable") is True and
+                          all(item.get("status", {}).get("protocolProbes", {}).get(protocol) is True
+                              for protocol in ("http", "https"))),
             "probes": probes,
         })
     return candidates
@@ -500,8 +501,8 @@ def probe_loop():
 
 
 def publish_edge_statuses():
-    """Publish fresh, per-service probe evidence from the elected authority."""
-    if NODE != PUBLISHER_NODE or not KUBERNETES_API:
+    """Publish backend observations without redefining edge transport readiness."""
+    if not KUBERNETES_API:
         return
     observed_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     with LOCK:
@@ -530,7 +531,7 @@ def publish_edge_statuses():
         network_evidence["score"] = None
         ready = bool(ready_services) and network_evidence["eligible"]
         condition = {
-            "type": "Ready",
+            "type": "ServiceBackendReady",
             "status": "True" if ready else "False",
             "reason": ("ServiceAndNetworkEvidenceReady" if ready else
                        network_evidence.get("reason", "NetworkEvidenceRejected")
@@ -546,7 +547,7 @@ def publish_edge_statuses():
                 {"status": {"observedAt": observed_at,
                             "observedGeneration": candidate.get("generation", 0),
                             "services": service_health,
-                            "networkEvidence": network_evidence, "conditions": [condition]}},
+                            "networkEvidence": network_evidence, "backendConditions": [condition]}},
             )
         except Exception as exc:
             print(f"publicedge_status edge={edge_id} error={exc}", flush=True)
@@ -560,8 +561,11 @@ def publish_default_area():
     a distinct set of ExternalDNS-only Ingress objects and provider credentials
     remain outside Public Edge Manager.
     """
-    if not PUBLICATION_ENABLED or NODE != PUBLISHER_NODE:
-        return
+    # Dynamic delegated DNS replaces the legacy singleton publisher.  Retain
+    # the parser for backwards-compatible values, but never elect by node name.
+    if PUBLICATION_ENABLED:
+        print("legacy publication ignored; use delegated dynamic DNS", flush=True)
+    return
     adapters = PUBLICATION_ADAPTERS or {
         "legacy": {"provider": "external-dns", "refs": PUBLICATION_REFS}
     }
@@ -616,7 +620,24 @@ def validate_publication_adapters():
             claimed[identity] = adapter_name
 
 
-def ranked(service):
+def client_area(address):
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return "GLOBAL"
+    matches = []
+    for area, cidrs in CLIENT_AREA_CIDRS.items():
+        for value in cidrs:
+            try:
+                network = ipaddress.ip_network(value)
+            except ValueError:
+                continue
+            if ip in network:
+                matches.append((network.prefixlen, area))
+    return max(matches, default=(0, "GLOBAL"))[1]
+
+
+def ranked(service, request_area=None):
     gate_ready = readiness_gate_ready(service)
     with LOCK:
         snapshot = dict(HEALTH.get(service, {}))
@@ -629,16 +650,23 @@ def ranked(service):
         observed = snapshot.get(candidate["id"], {})
         network_evidence = fabric_evidence(candidate)
         fresh_probe = probe_fresh(observed)
-        ready = bool(observed.get("ready")) and fresh_probe and gate_ready and network_evidence["eligible"]
+        # Edge transport and backend health are separate.  A reachable edge
+        # remains in DNS when a service has no ready Pod; Gateway API then
+        # terminates that request with an explicit 503 instead of DNS NODATA.
+        edge_ready = candidate.get("edgeReady")
+        if edge_ready is None:  # Compatibility for externally managed v1alpha1 objects.
+            edge_ready = bool(observed.get("ready")) and fresh_probe and gate_ready
+        ready = bool(edge_ready) and network_evidence["eligible"]
         score = 0
         if ready:
-            regional_priority = candidate.get("priorityByRegion", {}).get(REGION, candidate.get("priority", 0))
+            area = request_area or AREA
+            regional_priority = candidate.get("priorityByRegion", {}).get(area, candidate.get("priority", 0))
             # Area is the hard locality boundary: a US authority should publish a
             # healthy US relay even when the origin is in CN. Inside one area,
             # capacity is intentionally the dominant signal so clients reach
             # the strongest local edge instead of hairpinning through a remote one.
             score = int(candidate.get("capacityMbps", 1)) * CANDIDATE_CAPACITY_WEIGHT
-            if candidate.get("area", candidate["region"]) == AREA:
+            if candidate.get("area", candidate["region"]) == area:
                 score += CANDIDATE_LOCAL_AREA_BONUS
             score -= int(regional_priority) * CANDIDATE_PRIORITY_WEIGHT
             score -= min(int(observed.get("latencyMs", 0)) // CANDIDATE_LATENCY_DIVISOR_MS, CANDIDATE_LATENCY_PENALTY_CAP)
@@ -655,6 +683,7 @@ def ranked(service):
             "score": score, "state": "ready" if ready else "unavailable",
             "statusCode": observed.get("statusCode", 0), "latencyMs": observed.get("latencyMs", 0),
             "observedAt": observed.get("observedAt", 0),
+            "serviceBackendReady": bool(observed.get("ready")) and fresh_probe and gate_ready,
             "networkEvidence": network_evidence,
             "reason": ("ServiceProbeStale" if not fresh_probe else
                        network_evidence.get("reason", "network evidence rejected candidate")
@@ -689,6 +718,52 @@ def parse_name(packet, offset):
     raise ValueError("unterminated DNS name")
 
 
+def skip_name(packet, offset):
+    """Skip a possibly compressed DNS name and return the wire resume offset."""
+    while offset < len(packet):
+        size = packet[offset]
+        offset += 1
+        if size == 0:
+            return offset
+        if size & 0xC0 == 0xC0:
+            return offset + 1
+        if size > 63 or offset + size > len(packet):
+            raise ValueError("invalid DNS name")
+        offset += size
+    raise ValueError("unterminated DNS name")
+
+
+def ecs_address(packet, question_end):
+    """Return RFC 7871 ECS address when present in an OPT additional RR."""
+    try:
+        _, _, _, answers, authorities, additional = struct.unpack("!HHHHHH", packet[:12])
+        offset = question_end
+        for _ in range(answers + authorities + additional):
+            offset = skip_name(packet, offset)
+            rrtype, _, _, length = struct.unpack("!HHIH", packet[offset:offset + 10])
+            offset += 10
+            end = offset + length
+            if rrtype == 41:
+                option = offset
+                while option + 4 <= end:
+                    code, size = struct.unpack("!HH", packet[option:option + 4])
+                    option += 4
+                    data = packet[option:option + size]
+                    option += size
+                    if code != 8 or len(data) < 4:
+                        continue
+                    family, prefix, _ = struct.unpack("!HBB", data[:4])
+                    width = 4 if family == 1 else 16 if family == 2 else 0
+                    if not width or prefix > width * 8:
+                        continue
+                    packed = data[4:] + b"\0" * (width - len(data[4:]))
+                    return str(ipaddress.ip_address(packed[:width]))
+            offset = end
+    except (IndexError, struct.error, ValueError):
+        return ""
+    return ""
+
+
 def rr(name, qtype, ttl, data):
     return encode_name(name) + struct.pack("!HHIH", qtype, 1, ttl, len(data)) + data
 
@@ -711,8 +786,8 @@ def soa_rr(zone):
     return rr(zone, 6, 300, data)
 
 
-def service_address_records(name, service):
-    ready = [item for item in ranked(service) if item["state"] == "ready"]
+def service_address_records(name, service, request_area=None):
+    ready = [item for item in ranked(service, request_area) if item["state"] == "ready"]
     if not ready:
         return []
     best_score = ready[0]["score"]
@@ -741,7 +816,7 @@ def external_address_records(name, qtype):
     return records
 
 
-def dns_response(query):
+def dns_response(query, source_ip=""):
     if len(query) < 12:
         return b""
     ident, flags, qdcount = struct.unpack("!HHH", query[:6])
@@ -755,6 +830,7 @@ def dns_response(query):
         return b""
     qtype, _ = struct.unpack("!HH", query[offset:offset + 4])
     question = query[12:offset + 4]
+    request_area = client_area(ecs_address(query, offset + 4) or source_ip)
     answers = []
     authorities = []
     rcode = 0
@@ -770,7 +846,7 @@ def dns_response(query):
         if not service:
             rcode = 3
         elif qtype in (1, 255):
-            answers.extend(service_address_records(name, service))
+            answers.extend(service_address_records(name, service, request_area))
         elif qtype == 2:
             answers.extend(rr(name, 2, 300, encode_name(ns)) for ns in NAMESERVERS)
         elif qtype == 6:
@@ -786,7 +862,7 @@ def dns_response(query):
         elif name in EXTERNAL_RECORDS:
             answers.extend(external_address_records(name, qtype))
         elif service and qtype in (1, 255):
-            answers.extend(service_address_records(name, service))
+            answers.extend(service_address_records(name, service, request_area))
         if not answers:
             authorities.append(soa_rr(zone))
 
@@ -798,7 +874,7 @@ def dns_response(query):
 class UDPHandler(socketserver.BaseRequestHandler):
     def handle(self):
         data, sock = self.request
-        response = dns_response(data)
+        response = dns_response(data, self.client_address[0])
         if response:
             sock.sendto(response, self.client_address)
 
@@ -823,7 +899,7 @@ class TCPHandler(socketserver.BaseRequestHandler):
             if not part:
                 return
             data += part
-        response = dns_response(data)
+        response = dns_response(data, self.client_address[0])
         if response:
             self.request.sendall(struct.pack("!H", len(response)) + response)
 
@@ -849,13 +925,15 @@ class HTTPHandler(BaseHTTPRequestHandler):
         if service not in set(SERVICES.values()):
             self.send_error(400, "unknown service")
             return
-        candidates = ranked(service)
+        client = self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[0].strip()
+        area = client_area(client)
+        candidates = ranked(service, area)
         selected = next((item["id"] for item in candidates if item["state"] == "ready"), "")
         payload = json.dumps({
             "version": 1, "generation": int(time.time() // 10 * 10), "service": service,
             "paths": next((item.get("paths", []) for item in SERVICE_DEFINITIONS.values() if item["service"] == service), []),
             "selected": selected, "ttlSeconds": 30, "servedBy": NODE,
-            "client": self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[0].strip(),
+            "client": client, "clientArea": area,
             "candidates": candidates,
         }, separators=(",", ":")).encode()
         self.send_response(200)
