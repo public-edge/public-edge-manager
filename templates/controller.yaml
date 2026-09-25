@@ -32,6 +32,7 @@ spec:
             - {name: DISCOVERY_INTERVAL_SECONDS, value: {{ .Values.discovery.intervalSeconds | quote }}}
             - {name: DISCOVERY_PROBE_TIMEOUT_SECONDS, value: {{ .Values.discovery.probeTimeoutSeconds | quote }}}
             - {name: DEFAULT_CAPACITY_MBPS, value: {{ .Values.discovery.defaultCapacityMbps | quote }}}
+            - {name: MINIMUM_CAPACITY_MBPS, value: {{ .Values.discovery.minimumCapacityMbps | quote }}}
             - {name: MAX_NAMESERVERS, value: {{ .Values.discovery.maxNameservers | quote }}}
             - {name: GATEWAY_NAMESPACE, value: {{ .Values.discovery.gatewayNamespace | quote }}}
             - {name: GATEWAY_SELECTOR, value: {{ .Values.discovery.gatewaySelector | quote }}}

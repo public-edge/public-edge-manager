@@ -29,6 +29,7 @@ POD_NAME = os.getenv("POD_NAME", "public-edge-controller")
 INTERVAL = max(5, int(os.getenv("DISCOVERY_INTERVAL_SECONDS", "15")))
 PROBE_TIMEOUT = max(0.2, float(os.getenv("DISCOVERY_PROBE_TIMEOUT_SECONDS", "2")))
 DEFAULT_CAPACITY = max(1, int(os.getenv("DEFAULT_CAPACITY_MBPS", "100")))
+MINIMUM_CAPACITY = max(1, int(os.getenv("MINIMUM_CAPACITY_MBPS", "100")))
 ALLOWED_STATES = set(json.loads(os.getenv("FABRIC_EVIDENCE_ALLOWED_STATES_JSON", '["Ready","Partial"]')))
 NPA_GROUP = os.getenv("FABRIC_EVIDENCE_API_GROUP", "networking.re8ch.com")
 NPA_VERSION = os.getenv("FABRIC_EVIDENCE_API_VERSION", "v1alpha2")
@@ -386,7 +387,9 @@ def reconcile():
         name = node.get("metadata", {}).get("name", "")
         uid = node.get("metadata", {}).get("uid", "")
         public_ip = global_external_ip(node)
-        path_ready = bool(public_ip and uid and assessment_ready(assessments.get(name)))
+        node_capacity = capacity(node)
+        capacity_ready = node_capacity >= MINIMUM_CAPACITY
+        path_ready = bool(public_ip and uid and capacity_ready and assessment_ready(assessments.get(name)))
         gateway_ready = path_ready and tcp_probe(gateway_ip, 443)
         # The generic redirector is scheduled from bootstrap eligibility.  On
         # the next cycle its public listeners qualify the derived PublicEdge.
