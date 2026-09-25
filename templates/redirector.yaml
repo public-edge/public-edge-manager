@@ -35,11 +35,5 @@ spec:
             - {name: https, containerPort: 443, hostPort: 443, protocol: TCP}
           readinessProbe: {tcpSocket: {port: http}, periodSeconds: 5}
           resources: {{ .Values.resources | toYaml | nindent 12 }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities: {add: [NET_BIND_SERVICE], drop: [ALL]}
-            readOnlyRootFilesystem: true
-            runAsNonRoot: true
-            runAsUser: 65532
-            runAsGroup: 65532
+          securityContext: {{ .Values.workload.containerSecurityContext | toYaml | nindent 12 }}
 {{- end }}
