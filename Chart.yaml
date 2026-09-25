@@ -2,8 +2,8 @@ apiVersion: v2
 name: public-edge-manager
 description: Region- and capacity-aware PublicEdge health authority for Kubernetes.
 type: application
-version: 0.6.4
-appVersion: "0.6.4"
+version: 0.6.5
+appVersion: "0.6.5"
 keywords: [public-edge, dns, external-dns, gateway-api, cilium, geo-routing]
 maintainers:
   - name: RE8CH Platform
@@ -13,6 +13,8 @@ annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/category: networking
   artifacthub.io/changes: |
+    - kind: fixed
+      description: Avoid reserving the authority health port on host-network nodes; probes and Services use numeric targets.
     - kind: fixed
       description: Avoid reserving DNS host ports in the scheduler while the authority binds its dynamically derived node address.
     - kind: fixed

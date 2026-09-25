@@ -48,16 +48,14 @@ spec:
             - {name: PROBE_RESPONSE_TIMEOUT_SECONDS, value: {{ .Values.probe.responseTimeoutSeconds | quote }}}
             - {name: PROBE_INTERVAL_SECONDS, value: {{ .Values.probe.intervalSeconds | quote }}}
             - {name: PROBE_MAX_WORKERS, value: {{ .Values.probe.maxWorkers | quote }}}
-          ports:
-            - {name: http, containerPort: {{ .Values.workload.httpPort }}}
           volumeMounts:
             - {name: records, mountPath: /etc/public-edge-records, readOnly: true}
             - {name: runtime, mountPath: /etc/public-edge-runtime, readOnly: true}
             {{- if .Values.dns.nameserversConfigMap }}
             - {name: nameservers, mountPath: /etc/public-edge-nameservers, readOnly: true}
             {{- end }}
-          readinessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 5}
-          livenessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /healthz, port: {{ .Values.workload.httpPort }}}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: {{ .Values.workload.httpPort }}}, periodSeconds: 10}
           resources: {{ .Values.resources | toYaml | nindent 12 }}
           securityContext: {{ .Values.workload.containerSecurityContext | toYaml | nindent 12 }}
       volumes:
@@ -78,7 +76,7 @@ spec:
   type: ClusterIP
   selector: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}}
   ports:
-    - {name: http, port: 8080, targetPort: http, protocol: TCP}
+    - {name: http, port: 8080, targetPort: {{ .Values.workload.httpPort }}, protocol: TCP}
 ---
 apiVersion: v1
 kind: Service
