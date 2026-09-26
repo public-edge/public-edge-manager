@@ -56,7 +56,20 @@ dns:
 Public Edge Manager does not configure provider routers, NAT, BGP, certificates
 or application routes. It derives `PublicEdge` objects from existing Node,
 NetworkPathAssessment and Gateway resources and removes them when evidence
-expires. No node names, public addresses or Pod addresses belong in chart values.
+expires. Public IPs and Pod addresses are never configured in chart values. An
+optional PublicEdge-owned `discovery.nodeInventory` declares stable capacity
+and region for named nodes without affecting candidate discovery:
+
+```yaml
+discovery:
+  nodeInventory:
+    overseas-la: {capacityMbps: 1000, region: us-ca}
+    r640: {capacityMbps: 200, region: cn-hunan}
+```
+
+Configured values take precedence over Node annotations and region labels;
+unlisted nodes retain those Kubernetes fallbacks. No other controller or CR
+supplies this inventory at runtime.
 
 ### Optional network evidence
 

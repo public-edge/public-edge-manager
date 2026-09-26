@@ -26,8 +26,8 @@ discovery:
   defaultCapacityMbps: 100
   # Nodes below this measured/configured uplink are never public exits or DNS authorities.
   minimumCapacityMbps: 100
-  # Optional authoritative node uplink inventory. Node annotations remain explicit overrides.
-  capacityInventory: {}
+  # Optional PublicEdge-owned capacity and region; absent nodes use Node annotations/labels.
+  nodeInventory: {}
   maxNameservers: 3
   gatewayNamespace: ""
   gatewaySelector: networking.re8ch.com/public-edge-gateway=true
