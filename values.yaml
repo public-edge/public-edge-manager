@@ -36,6 +36,8 @@ discovery:
   serviceClasses: [api, web, registry, db-ro, db-rw]
   parentZone: ""
   childZones: []
+  # An authority must answer these A records over UDP and TCP before delegation.
+  authorityRequiredRecords: []
   cloudflareSecretRef: {}
 
 runtime:

@@ -45,6 +45,8 @@ NAMESERVER_CONFIGMAP = os.getenv("NAMESERVER_CONFIGMAP", "public-edge-nameserver
 MAX_NAMESERVERS = max(1, min(3, int(os.getenv("MAX_NAMESERVERS", "3"))))
 PARENT_ZONE = os.getenv("PARENT_ZONE", "").rstrip(".").lower()
 CHILD_ZONES = [value.rstrip(".").lower() for value in json.loads(os.getenv("CHILD_ZONES_JSON", "[]"))]
+AUTHORITY_REQUIRED_RECORDS = [value.rstrip(".").lower() for value in
+                              json.loads(os.getenv("AUTHORITY_REQUIRED_RECORDS_JSON", "[]"))]
 CF_TOKEN = os.getenv("CF_API_TOKEN", "")
 CF_SECRET_NAMESPACE = os.getenv("CF_SECRET_NAMESPACE", "")
 CF_SECRET_NAME = os.getenv("CF_SECRET_NAME", "")
@@ -171,10 +173,10 @@ def tcp_probe(ip, port):
         return False
 
 
-def dns_query(ip, zone, tcp=False):
+def dns_query(ip, zone, tcp=False, require_answer=False):
     ident = os.urandom(2)
     qname = b"".join(bytes([len(label)]) + label.encode() for label in zone.split(".")) + b"\0"
-    query = ident + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + qname + struct.pack("!HH", 6, 1)
+    query = ident + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + qname + struct.pack("!HH", 1 if require_answer else 6, 1)
     try:
         if tcp:
             with socket.create_connection((ip, 53), timeout=PROBE_TIMEOUT) as sock:
@@ -194,9 +196,17 @@ def dns_query(ip, zone, tcp=False):
                 sock.settimeout(PROBE_TIMEOUT)
                 sock.sendto(query, (ip, 53))
                 packet, _ = sock.recvfrom(4096)
-        return len(packet) >= 12 and packet[:2] == ident and (struct.unpack("!H", packet[2:4])[0] & 0x840F) == 0x8400
+        return (len(packet) >= 12 and packet[:2] == ident and
+                (struct.unpack("!H", packet[2:4])[0] & 0x840F) == 0x8400 and
+                (not require_answer or struct.unpack("!H", packet[6:8])[0] > 0))
     except OSError:
         return False
+
+
+def authority_dns_ready(ip):
+    return (all(dns_query(ip, zone, tcp) for zone in CHILD_ZONES for tcp in (False, True)) and
+            all(dns_query(ip, record, tcp, require_answer=True)
+                for record in AUTHORITY_REQUIRED_RECORDS for tcp in (False, True)))
 
 
 def cluster_inventory_by_node():
@@ -430,7 +440,7 @@ def reconcile():
         ingress_ready = gateway_ready and all(listeners.values())
         dns_ready = False
         if ingress_ready and PARENT_ZONE:
-            dns_ready = all(dns_query(public_ip, zone, tcp) for zone in CHILD_ZONES for tcp in (False, True))
+            dns_ready = authority_dns_ready(public_ip)
         patch_node_labels(node, gateway_ready, ingress_ready)
         if not ingress_ready:
             continue

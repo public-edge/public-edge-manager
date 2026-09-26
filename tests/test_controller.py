@@ -30,6 +30,39 @@ def assessment(name="edge", state="Ready", reachable=True):
 
 
 class ControllerTests(unittest.TestCase):
+    def test_authority_requires_live_service_record_on_both_dns_transports(self):
+        with mock.patch.object(controller, "CHILD_ZONES", ["service.example.com"]), \
+             mock.patch.object(controller, "AUTHORITY_REQUIRED_RECORDS", ["tools.service.example.com"]), \
+             mock.patch.object(controller, "dns_query", return_value=True) as query:
+            self.assertTrue(controller.authority_dns_ready("192.0.2.10"))
+            self.assertEqual(query.call_args_list, [
+                mock.call("192.0.2.10", "service.example.com", False),
+                mock.call("192.0.2.10", "service.example.com", True),
+                mock.call("192.0.2.10", "tools.service.example.com", False, require_answer=True),
+                mock.call("192.0.2.10", "tools.service.example.com", True, require_answer=True),
+            ])
+
+    def test_authority_rejects_empty_required_record(self):
+        def answer(_ip, _name, _tcp, require_answer=False):
+            return not require_answer
+        with mock.patch.object(controller, "CHILD_ZONES", ["service.example.com"]), \
+             mock.patch.object(controller, "AUTHORITY_REQUIRED_RECORDS", ["tools.service.example.com"]), \
+             mock.patch.object(controller, "dns_query", side_effect=answer):
+            self.assertFalse(controller.authority_dns_ready("192.0.2.10"))
+
+    def test_dns_query_requires_an_answer_not_just_successful_soa(self):
+        udp = mock.MagicMock()
+        udp.__enter__.return_value = udp
+        packet = b"\x12\x34\x84\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+        with mock.patch.object(controller.os, "urandom", return_value=b"\x12\x34"), \
+             mock.patch.object(controller.socket, "socket", return_value=udp):
+            udp.recvfrom.return_value = (packet, ("192.0.2.10", 53))
+            self.assertTrue(controller.dns_query("192.0.2.10", "service.example.com"))
+            self.assertFalse(controller.dns_query("192.0.2.10", "tools.service.example.com", require_answer=True))
+            udp.recvfrom.return_value = (packet[:6] + b"\x00\x01" + packet[8:], ("192.0.2.10", 53))
+            self.assertTrue(controller.dns_query("192.0.2.10", "tools.service.example.com", require_answer=True))
+            self.assertEqual(udp.sendto.call_args.args[0][-4:], struct.pack("!HH", 1, 1))
+
     def test_lease_timestamp_uses_kubernetes_microtime(self):
         self.assertRegex(controller.now_rfc3339(), r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
 

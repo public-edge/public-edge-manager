@@ -51,6 +51,7 @@
         "serviceClasses": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
         "parentZone": {"type": "string"},
         "childZones": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "authorityRequiredRecords": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 3}},
         "cloudflareSecretRef": {
           "type": "object",
           "properties": {

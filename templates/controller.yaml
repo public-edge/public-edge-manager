@@ -46,6 +46,7 @@ spec:
             - {name: SERVICE_CLASSES, value: {{ join "," .Values.discovery.serviceClasses | quote }}}
             - {name: PARENT_ZONE, value: {{ .Values.discovery.parentZone | quote }}}
             - {name: CHILD_ZONES_JSON, value: {{ .Values.discovery.childZones | toJson | quote }}}
+            - {name: AUTHORITY_REQUIRED_RECORDS_JSON, value: {{ .Values.discovery.authorityRequiredRecords | toJson | quote }}}
             - {name: NAMESERVER_CONFIGMAP, value: {{ .Values.dns.nameserversConfigMap | quote }}}
             {{- with .Values.discovery.cloudflareSecretRef }}
             - {name: CF_SECRET_NAMESPACE, value: {{ .namespace | quote }}}
