@@ -33,17 +33,14 @@
         "probeTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
         "defaultCapacityMbps": {"type": "integer", "minimum": 1},
         "minimumCapacityMbps": {"type": "integer", "minimum": 1},
-        "nodeInventory": {
+        "clusterInventoryConfigMap": {
           "type": "object",
-          "propertyNames": {"minLength": 1},
-          "additionalProperties": {
-            "type": "object",
-            "required": ["capacityMbps", "region"],
-            "additionalProperties": false,
-            "properties": {
-              "capacityMbps": {"type": "integer", "minimum": 1},
-              "region": {"type": "string", "minLength": 1}
-            }
+          "additionalProperties": false,
+          "oneOf": [{"maxProperties": 0}, {"required": ["namespace", "name", "key"]}],
+          "properties": {
+            "namespace": {"type": "string", "minLength": 1},
+            "name": {"type": "string", "minLength": 1},
+            "key": {"type": "string", "minLength": 1}
           }
         },
         "maxNameservers": {"type": "integer", "minimum": 1, "maximum": 3},
