@@ -33,18 +33,17 @@
         "probeTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
         "defaultCapacityMbps": {"type": "integer", "minimum": 1},
         "minimumCapacityMbps": {"type": "integer", "minimum": 1},
-        "capacityInventory": {
+        "nodeInventory": {
           "type": "object",
-          "additionalProperties": false,
-          "oneOf": [
-            {"maxProperties": 0},
-            {"required": ["apiGroup", "apiVersion", "resource", "name"]}
-          ],
-          "properties": {
-            "apiGroup": {"type": "string", "minLength": 1},
-            "apiVersion": {"type": "string", "minLength": 1},
-            "resource": {"type": "string", "minLength": 1},
-            "name": {"type": "string", "minLength": 1}
+          "propertyNames": {"minLength": 1},
+          "additionalProperties": {
+            "type": "object",
+            "required": ["capacityMbps", "region"],
+            "additionalProperties": false,
+            "properties": {
+              "capacityMbps": {"type": "integer", "minimum": 1},
+              "region": {"type": "string", "minLength": 1}
+            }
           }
         },
         "maxNameservers": {"type": "integer", "minimum": 1, "maximum": 3},

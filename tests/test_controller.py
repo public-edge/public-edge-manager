@@ -46,31 +46,19 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(controller.capacity(node_with_capacity(3)), 3)
         self.assertLess(controller.capacity(node_with_capacity(3)), controller.MINIMUM_CAPACITY)
 
-    def test_capacity_uses_authoritative_inventory_when_annotation_is_absent(self):
-        self.assertEqual(controller.capacity(node(name="overseas-la"), {"overseas-la": 1000}), 1000)
+    def test_capacity_uses_public_edge_inventory(self):
+        self.assertEqual(controller.capacity(node(name="overseas-la"), {
+            "overseas-la": {"capacityMbps": 1000, "region": "us-ca"}}), 1000)
 
-    def test_capacity_annotation_overrides_authoritative_inventory(self):
+    def test_public_edge_inventory_overrides_stale_annotation(self):
         item = node_with_capacity(200)
         item["metadata"]["name"] = "r640"
-        self.assertEqual(controller.capacity(item, {"r640": 1000}), 200)
+        self.assertEqual(controller.capacity(item, {"r640": {
+            "capacityMbps": 1000, "region": "cn-hunan"}}), 1000)
 
-    def test_capacity_inventory_reads_uplink_mbps(self):
-        payload = {"spec": {"nodes": [
-            {"name": "overseas-la", "uplinkMbps": 1000},
-            {"name": "r640", "uplinkMbps": 200},
-            {"name": "missing-capacity"},
-        ]}}
-        with mock.patch.object(controller, "CAPACITY_INVENTORY_GROUP", "networking.advfab.org"), \
-             mock.patch.object(controller, "CAPACITY_INVENTORY_NAME", "advanced-fabric"), \
-             mock.patch.object(controller, "api", return_value=payload):
-            self.assertEqual(controller.capacity_inventory_by_node(), {
-                "overseas-la": {"capacityMbps": 1000, "region": ""},
-                "r640": {"capacityMbps": 200, "region": ""},
-            })
-
-    def test_locality_uses_authoritative_inventory_when_node_label_is_absent(self):
+    def test_locality_uses_public_edge_inventory_over_node_label(self):
         self.assertEqual(
-            controller.locality(node(name="r640", region=""), {
+            controller.locality(node(name="r640", region="stale"), {
                 "r640": {"capacityMbps": 200, "region": "cn-hunan"},
             }),
             ("CN", "cn-hunan"),

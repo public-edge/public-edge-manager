@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Discover public edges from Kubernetes facts and reconcile derived state.
 
-The controller deliberately has no node inventory.  Nodes become candidates
+The controller uses an optional inventory only for capacity and locality. Nodes become candidates
 only when Kubernetes reports a global ExternalIP, fresh provider-neutral path
 evidence exists, the selected Gateway is programmed, and the public listeners
 are reachable.  PublicEdge objects and eligibility labels are derived outputs.
@@ -30,10 +30,7 @@ INTERVAL = max(5, int(os.getenv("DISCOVERY_INTERVAL_SECONDS", "15")))
 PROBE_TIMEOUT = max(0.2, float(os.getenv("DISCOVERY_PROBE_TIMEOUT_SECONDS", "2")))
 DEFAULT_CAPACITY = max(1, int(os.getenv("DEFAULT_CAPACITY_MBPS", "100")))
 MINIMUM_CAPACITY = max(1, int(os.getenv("MINIMUM_CAPACITY_MBPS", "100")))
-CAPACITY_INVENTORY_GROUP = os.getenv("CAPACITY_INVENTORY_API_GROUP", "")
-CAPACITY_INVENTORY_VERSION = os.getenv("CAPACITY_INVENTORY_API_VERSION", "v1alpha1")
-CAPACITY_INVENTORY_RESOURCE = os.getenv("CAPACITY_INVENTORY_RESOURCE", "advancedfabrics")
-CAPACITY_INVENTORY_NAME = os.getenv("CAPACITY_INVENTORY_NAME", "")
+NODE_INVENTORY = json.loads(os.getenv("NODE_INVENTORY_JSON", "{}"))
 ALLOWED_STATES = set(json.loads(os.getenv("FABRIC_EVIDENCE_ALLOWED_STATES_JSON", '["Ready","Partial"]')))
 NPA_GROUP = os.getenv("FABRIC_EVIDENCE_API_GROUP", "networking.re8ch.com")
 NPA_VERSION = os.getenv("FABRIC_EVIDENCE_API_VERSION", "v1alpha2")
@@ -200,37 +197,18 @@ def dns_query(ip, zone, tcp=False):
         return False
 
 
-def capacity_inventory_by_node():
-    if not CAPACITY_INVENTORY_GROUP or not CAPACITY_INVENTORY_NAME:
-        return {}
-    item = api(
-        f"/apis/{CAPACITY_INVENTORY_GROUP}/{CAPACITY_INVENTORY_VERSION}/"
-        f"{CAPACITY_INVENTORY_RESOURCE}/{CAPACITY_INVENTORY_NAME}"
-    )
-    result = {}
-    for entry in item.get("spec", {}).get("nodes", []):
-        try:
-            result[entry["name"]] = {
-                "capacityMbps": max(1, int(float(entry["uplinkMbps"]))),
-                "region": entry.get("region", ""),
-            }
-        except (KeyError, TypeError, ValueError):
-            continue
-    return result
-
-
 def capacity(node, inventory=None):
     metadata = node.get("metadata", {})
+    inventory = inventory or {}
+    configured = inventory.get(metadata.get("name"))
+    if configured is not None:
+        return configured["capacityMbps"]
     annotations = metadata.get("annotations", {})
     for key in (f"{API_GROUP}/observed-capacity-mbps", f"{API_GROUP}/capacity-mbps"):
         try:
             return max(1, int(float(annotations[key])))
         except (KeyError, TypeError, ValueError):
             pass
-    inventory = inventory or {}
-    if metadata.get("name") in inventory:
-        value = inventory[metadata["name"]]
-        return value["capacityMbps"] if isinstance(value, dict) else value
     return DEFAULT_CAPACITY
 
 
@@ -239,7 +217,7 @@ def locality(node, inventory=None):
     inventory = inventory or {}
     inventory_region = inventory.get(node.get("metadata", {}).get("name"), {})
     inventory_region = inventory_region.get("region", "") if isinstance(inventory_region, dict) else ""
-    region = labels.get("topology.kubernetes.io/region") or inventory_region or "unknown"
+    region = inventory_region or labels.get("topology.kubernetes.io/region") or "unknown"
     area = labels.get(f"{API_GROUP}/area", "")
     if not area:
         area = region.split("-", 1)[0].upper() if region != "unknown" else "GLOBAL"
@@ -403,7 +381,7 @@ def reconcile():
     if not acquire_lease():
         return
     nodes = api("/api/v1/nodes").get("items", [])
-    inventory = capacity_inventory_by_node()
+    inventory = NODE_INVENTORY
     assessments = assessment_by_node(api(f"/apis/{NPA_GROUP}/{NPA_VERSION}/{NPA_RESOURCE}"))
     gateway_path = "/apis/gateway.networking.k8s.io/v1/gateways"
     if GATEWAY_NAMESPACE:
