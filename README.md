@@ -57,19 +57,22 @@ Public Edge Manager does not configure provider routers, NAT, BGP, certificates
 or application routes. It derives `PublicEdge` objects from existing Node,
 NetworkPathAssessment and Gateway resources and removes them when evidence
 expires. Public IPs and Pod addresses are never configured in chart values. An
-optional PublicEdge-owned `discovery.nodeInventory` declares stable capacity
-and region for named nodes without affecting candidate discovery:
+optional shared cluster-node ConfigMap supplies membership, capacity and region:
 
 ```yaml
 discovery:
-  nodeInventory:
-    overseas-la: {capacityMbps: 1000, region: us-ca}
-    r640: {capacityMbps: 200, region: cn-hunan}
+  clusterInventoryConfigMap:
+    namespace: flux-system
+    name: cluster-node-inventory
+    key: nodes.json
 ```
 
-Configured values take precedence over Node annotations and region labels;
-unlisted nodes retain those Kubernetes fallbacks. No other controller or CR
-supplies this inventory at runtime.
+The key contains a JSON object keyed by Kubernetes Node name, with
+`capacityMbps` and `region` in each value. When configured, unlisted Nodes are
+ineligible even if they have a public IP; inventory attributes take precedence
+over stale Node annotations and labels. Candidate health still comes from live
+path, Gateway and listener evidence. The controller does not read any
+vendor-specific network CR for inventory.
 
 ### Optional network evidence
 

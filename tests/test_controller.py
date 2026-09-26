@@ -64,6 +64,25 @@ class ControllerTests(unittest.TestCase):
             ("CN", "cn-hunan"),
         )
 
+    def test_shared_inventory_requires_membership_and_reads_generic_configmap(self):
+        payload = {"data": {"nodes.json": '{"overseas-la":{"capacityMbps":1000,"region":"us-ca"}}'}}
+        with mock.patch.object(controller, "CLUSTER_INVENTORY_NAMESPACE", "flux-system"), \
+             mock.patch.object(controller, "CLUSTER_INVENTORY_CONFIGMAP", "cluster-node-inventory"), \
+             mock.patch.object(controller, "api", return_value=payload) as api:
+            inventory = controller.cluster_inventory_by_node()
+            self.assertEqual(controller.capacity(node(name="overseas-la"), inventory), 1000)
+            self.assertTrue(controller.inventory_member("overseas-la", inventory))
+            self.assertFalse(controller.inventory_member("qwen-1", inventory))
+            api.assert_called_once_with("/api/v1/namespaces/flux-system/configmaps/cluster-node-inventory")
+
+    def test_shared_inventory_rejects_invalid_capacity(self):
+        payload = {"data": {"nodes.json": '{"overseas-la":{"capacityMbps":true,"region":"us-ca"}}'}}
+        with mock.patch.object(controller, "CLUSTER_INVENTORY_NAMESPACE", "flux-system"), \
+             mock.patch.object(controller, "CLUSTER_INVENTORY_CONFIGMAP", "cluster-node-inventory"), \
+             mock.patch.object(controller, "api", return_value=payload):
+            with self.assertRaises(ValueError):
+                controller.cluster_inventory_by_node()
+
     def test_reconcile_status_uses_persisted_generation(self):
         desired = {
             "apiVersion": "networking.re8ch.com/v1alpha1", "kind": "PublicEdge",

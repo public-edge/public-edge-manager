@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Discover public edges from Kubernetes facts and reconcile derived state.
 
-The controller uses an optional inventory only for capacity and locality. Nodes become candidates
-only when Kubernetes reports a global ExternalIP, fresh provider-neutral path
+The controller can read a shared cluster-node inventory for capacity, locality
+and membership. Nodes become candidates only when Kubernetes reports a global ExternalIP, fresh provider-neutral path
 evidence exists, the selected Gateway is programmed, and the public listeners
 are reachable.  PublicEdge objects and eligibility labels are derived outputs.
 """
@@ -30,7 +30,9 @@ INTERVAL = max(5, int(os.getenv("DISCOVERY_INTERVAL_SECONDS", "15")))
 PROBE_TIMEOUT = max(0.2, float(os.getenv("DISCOVERY_PROBE_TIMEOUT_SECONDS", "2")))
 DEFAULT_CAPACITY = max(1, int(os.getenv("DEFAULT_CAPACITY_MBPS", "100")))
 MINIMUM_CAPACITY = max(1, int(os.getenv("MINIMUM_CAPACITY_MBPS", "100")))
-NODE_INVENTORY = json.loads(os.getenv("NODE_INVENTORY_JSON", "{}"))
+CLUSTER_INVENTORY_NAMESPACE = os.getenv("CLUSTER_INVENTORY_NAMESPACE", "")
+CLUSTER_INVENTORY_CONFIGMAP = os.getenv("CLUSTER_INVENTORY_CONFIGMAP", "")
+CLUSTER_INVENTORY_KEY = os.getenv("CLUSTER_INVENTORY_KEY", "nodes.json")
 ALLOWED_STATES = set(json.loads(os.getenv("FABRIC_EVIDENCE_ALLOWED_STATES_JSON", '["Ready","Partial"]')))
 NPA_GROUP = os.getenv("FABRIC_EVIDENCE_API_GROUP", "networking.re8ch.com")
 NPA_VERSION = os.getenv("FABRIC_EVIDENCE_API_VERSION", "v1alpha2")
@@ -195,6 +197,26 @@ def dns_query(ip, zone, tcp=False):
         return len(packet) >= 12 and packet[:2] == ident and (struct.unpack("!H", packet[2:4])[0] & 0x840F) == 0x8400
     except OSError:
         return False
+
+
+def cluster_inventory_by_node():
+    if not CLUSTER_INVENTORY_NAMESPACE or not CLUSTER_INVENTORY_CONFIGMAP:
+        return {}
+    item = api(f"/api/v1/namespaces/{CLUSTER_INVENTORY_NAMESPACE}/configmaps/{CLUSTER_INVENTORY_CONFIGMAP}")
+    inventory = json.loads(item["data"][CLUSTER_INVENTORY_KEY])
+    if not isinstance(inventory, dict):
+        raise ValueError("cluster inventory must be an object keyed by node name")
+    for name, value in inventory.items():
+        if (not isinstance(name, str) or not name or not isinstance(value, dict)
+                or not isinstance(value.get("capacityMbps"), int)
+                or isinstance(value["capacityMbps"], bool) or value["capacityMbps"] < 1
+                or not isinstance(value.get("region"), str) or not value["region"]):
+            raise ValueError(f"invalid cluster inventory entry: {name}")
+    return inventory
+
+
+def inventory_member(name, inventory):
+    return not CLUSTER_INVENTORY_CONFIGMAP or name in inventory
 
 
 def capacity(node, inventory=None):
@@ -381,7 +403,7 @@ def reconcile():
     if not acquire_lease():
         return
     nodes = api("/api/v1/nodes").get("items", [])
-    inventory = NODE_INVENTORY
+    inventory = cluster_inventory_by_node()
     assessments = assessment_by_node(api(f"/apis/{NPA_GROUP}/{NPA_VERSION}/{NPA_RESOURCE}"))
     gateway_path = "/apis/gateway.networking.k8s.io/v1/gateways"
     if GATEWAY_NAMESPACE:
@@ -399,7 +421,7 @@ def reconcile():
         uid = node.get("metadata", {}).get("uid", "")
         public_ip = global_external_ip(node)
         node_capacity = capacity(node, inventory)
-        capacity_ready = node_capacity >= MINIMUM_CAPACITY
+        capacity_ready = inventory_member(name, inventory) and node_capacity >= MINIMUM_CAPACITY
         path_ready = bool(public_ip and uid and capacity_ready and assessment_ready(assessments.get(name)))
         gateway_ready = path_ready and tcp_probe(gateway_ip, 443)
         # The generic redirector is scheduled from bootstrap eligibility.  On
