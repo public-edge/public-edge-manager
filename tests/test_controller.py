@@ -36,6 +36,12 @@ class ControllerTests(unittest.TestCase):
     def test_candidate_requires_global_external_ip_and_fresh_path(self):
         self.assertEqual(controller.global_external_ip(node()), "8.8.8.8")
         self.assertEqual(controller.global_external_ip(node(address="10.0.0.1")), "")
+        self.assertTrue(controller.dns_host_eligible(node(), "8.8.8.8", "uid-1", True))
+        self.assertFalse(controller.dns_host_eligible(node(), "", "uid-1", True))
+        self.assertFalse(controller.dns_host_eligible(node(), "8.8.8.8", "uid-1", False))
+        not_ready = node()
+        not_ready["status"]["conditions"][0]["status"] = "False"
+        self.assertFalse(controller.dns_host_eligible(not_ready, "8.8.8.8", "uid-1", True))
         self.assertTrue(controller.assessment_ready(assessment()))
         self.assertFalse(controller.assessment_ready(assessment(state="Stale")))
         stale = assessment()

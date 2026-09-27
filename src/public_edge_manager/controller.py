@@ -109,6 +109,13 @@ def node_ready(node):
                for item in node.get("status", {}).get("conditions", []))
 
 
+def dns_host_eligible(node, public_ip, uid, capacity_ready):
+    # Authoritative DNS must survive a transient Gateway listener failure.
+    # Its DaemonSet uses this label for scheduling, so tying the label to a
+    # probe of the same public delivery path can remove every DNS endpoint.
+    return bool(public_ip and uid and capacity_ready and node_ready(node))
+
+
 def assessment_by_node(payload):
     result = {}
     for item in payload.get("items", []):
@@ -431,7 +438,8 @@ def reconcile():
         dns_ready = False
         if ingress_ready and PARENT_ZONE:
             dns_ready = all(dns_query(public_ip, zone, tcp) for zone in CHILD_ZONES for tcp in (False, True))
-        patch_node_labels(node, gateway_ready, ingress_ready)
+        patch_node_labels(node, gateway_ready,
+                          dns_host_eligible(node, public_ip, uid, capacity_ready))
         if not ingress_ready:
             continue
         desired = desired_edge(node, public_ip, gateway, gateway_ip, assessments[name], listeners,
