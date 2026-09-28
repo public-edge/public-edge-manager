@@ -23,10 +23,12 @@ discovery:
   replicas: 2
   intervalSeconds: 15
   probeTimeoutSeconds: 2
-  defaultCapacityMbps: 100
+  # Unknown uplink capacity is not enough to qualify as a public edge.
+  defaultCapacityMbps: 1
   # Nodes below this measured/configured uplink are never public exits or DNS authorities.
   minimumCapacityMbps: 100
-  # Optional shared cluster-node inventory. When set, unlisted nodes cannot be candidates.
+  # Optional shared facts for known nodes. Unlisted Nodes may qualify through
+  # observed-capacity-mbps/capacity-mbps annotations and live path evidence.
   clusterInventoryConfigMap: {}
   maxNameservers: 3
   gatewayNamespace: ""
