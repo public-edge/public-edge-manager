@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Discover public edges from Kubernetes facts and reconcile derived state.
 
-The controller can read a shared cluster-node inventory for capacity, locality
-and membership. Nodes become candidates only when Kubernetes reports a global ExternalIP, fresh provider-neutral path
+The controller can read a shared cluster-node inventory for capacity and locality.
+All Kubernetes Nodes are examined. Nodes become candidates only when Kubernetes reports a global ExternalIP, fresh provider-neutral path
 evidence exists, the selected Gateway is programmed, and the public listeners
 are reachable.  PublicEdge objects and eligibility labels are derived outputs.
 """
@@ -222,10 +222,6 @@ def cluster_inventory_by_node():
     return inventory
 
 
-def inventory_member(name, inventory):
-    return not CLUSTER_INVENTORY_CONFIGMAP or name in inventory
-
-
 def capacity(node, inventory=None):
     metadata = node.get("metadata", {})
     inventory = inventory or {}
@@ -428,7 +424,7 @@ def reconcile():
         uid = node.get("metadata", {}).get("uid", "")
         public_ip = global_external_ip(node)
         node_capacity = capacity(node, inventory)
-        capacity_ready = inventory_member(name, inventory) and node_capacity >= MINIMUM_CAPACITY
+        capacity_ready = node_capacity >= MINIMUM_CAPACITY
         path_ready = bool(public_ip and uid and capacity_ready and assessment_ready(assessments.get(name)))
         gateway_ready = path_ready and tcp_probe(gateway_ip, 443)
         # The generic redirector is scheduled from bootstrap eligibility.  On

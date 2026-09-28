@@ -70,15 +70,18 @@ class ControllerTests(unittest.TestCase):
             ("CN", "cn-hunan"),
         )
 
-    def test_shared_inventory_requires_membership_and_reads_generic_configmap(self):
+    def test_shared_inventory_supplies_facts_without_restricting_membership(self):
         payload = {"data": {"nodes.json": '{"overseas-la":{"capacityMbps":1000,"region":"us-ca"}}'}}
         with mock.patch.object(controller, "CLUSTER_INVENTORY_NAMESPACE", "flux-system"), \
              mock.patch.object(controller, "CLUSTER_INVENTORY_CONFIGMAP", "cluster-node-inventory"), \
              mock.patch.object(controller, "api", return_value=payload) as api:
             inventory = controller.cluster_inventory_by_node()
             self.assertEqual(controller.capacity(node(name="overseas-la"), inventory), 1000)
-            self.assertTrue(controller.inventory_member("overseas-la", inventory))
-            self.assertFalse(controller.inventory_member("qwen-1", inventory))
+            unlisted = node_with_capacity(400)
+            unlisted["metadata"]["name"] = "new-edge"
+            self.assertEqual(controller.capacity(unlisted, inventory), 400)
+            self.assertGreaterEqual(controller.capacity(unlisted, inventory), controller.MINIMUM_CAPACITY)
+            self.assertEqual(controller.locality(unlisted, inventory), ("US", "us-west"))
             api.assert_called_once_with("/api/v1/namespaces/flux-system/configmaps/cluster-node-inventory")
 
     def test_shared_inventory_rejects_invalid_capacity(self):
