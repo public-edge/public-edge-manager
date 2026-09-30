@@ -183,6 +183,7 @@ class AuthorityTests(unittest.TestCase):
         self.assertIn(5, [record[2] for record in records])
         self.assertIn(2, [record[2] for record in records])
         first_serial = struct.unpack("!I", records[0][5][-20:-16])[0]
+        self.assertGreaterEqual(first_serial, int(time.strftime("%Y%m%d") + "01"))
         self.assertEqual(first_serial, struct.unpack("!I", self.dns_records(
             authority.dns_response(self.dns_query("example.com.", 6))
         )[0][5][-20:-16])[0])

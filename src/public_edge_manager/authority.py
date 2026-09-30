@@ -938,7 +938,8 @@ def zone_serial(zone, records=None):
     with LOCK:
         previous = ZONE_SERIALS.get(zone)
         if previous is None or previous[0] != digest:
-            serial = max(int(time.time()), previous[1] + 1 if previous else 0)
+            # Preserve the serial ordering of existing YYYYMMDDNN zones.
+            serial = max(int(time.strftime("%Y%m%d") + "01"), previous[1] + 1 if previous else 0)
             ZONE_SERIALS[zone] = (digest, serial)
         return ZONE_SERIALS[zone][1]
 
