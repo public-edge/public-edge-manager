@@ -553,12 +553,24 @@ class AuthorityTests(unittest.TestCase):
             "edge-b",
         )
 
-    def test_service_probe_failure_fails_closed_without_healthy_edge(self):
+    def test_probe_transport_failure_keeps_last_verified_dns_answer_for_grace(self):
         edge_a = {"id": "edge-a", "ip": "192.0.2.10", "state": "ready", "score": 20,
-                  "serviceBackendReady": True}
-        failed_a = dict(edge_a, serviceBackendReady=False)
+                  "serviceBackendReady": True, "statusCode": 200}
+        failed_a = dict(edge_a, serviceBackendReady=False, statusCode=0)
+        with mock.patch.object(authority, "CANDIDATE_FAILOVER_GRACE_SECONDS", 30):
+            authority.stable_selected("app", [edge_a], "US", 0)
+            self.assertEqual(authority.stable_selected("app", [failed_a], "US", 1)["ip"], "192.0.2.10")
+            self.assertEqual(authority.stable_selected("app", [failed_a], "US", 30)["ip"], "192.0.2.10")
+            self.assertIsNone(authority.stable_selected("app", [failed_a], "US", 31))
+
+    def test_explicit_service_failure_withdraws_dns_answer(self):
+        edge_a = {"id": "edge-a", "ip": "192.0.2.10", "state": "ready", "score": 20,
+                  "serviceBackendReady": True, "statusCode": 200}
+        failed_a = dict(edge_a, serviceBackendReady=False, statusCode=404)
         authority.stable_selected("app", [edge_a], "US", 0)
         self.assertIsNone(authority.stable_selected("app", [failed_a], "US", 1))
+        self.assertIsNone(authority.stable_selected(
+            "app", [dict(failed_a, statusCode=0)], "US", 2))
 
     def test_disabled_publication_adapter_is_skipped(self):
         adapters = {
