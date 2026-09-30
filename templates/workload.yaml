@@ -54,8 +54,8 @@ spec:
             {{- if .Values.dns.nameserversConfigMap }}
             - {name: nameservers, mountPath: /etc/public-edge-nameservers, readOnly: true}
             {{- end }}
-          readinessProbe: {httpGet: {path: /healthz, port: {{ .Values.workload.httpPort }}}, periodSeconds: 5}
-          livenessProbe: {httpGet: {path: /livez, port: {{ .Values.workload.httpPort }}}, periodSeconds: 10}
+          # Check the process's own marker; host-network HTTP may be intercepted on a node.
+          readinessProbe: {exec: {command: ["test", "-f", "/tmp/public-edge-dns-ready"]}, periodSeconds: 5}
           resources: {{ .Values.resources | toYaml | nindent 12 }}
           securityContext: {{ .Values.workload.containerSecurityContext | toYaml | nindent 12 }}
       volumes:

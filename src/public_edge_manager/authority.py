@@ -63,6 +63,7 @@ CANDIDATE_MIN_READY_SECONDS = max(0, int(os.getenv("CANDIDATE_MIN_READY_SECONDS"
 CANDIDATE_MIN_HOLD_SECONDS = max(0, int(os.getenv("CANDIDATE_MIN_HOLD_SECONDS", "600")))
 SELECTIONS = {}
 DNS_READY = threading.Event()
+DNS_READY_MARKER = "/tmp/public-edge-dns-ready"
 FABRIC_EVIDENCE_MODE = os.getenv("FABRIC_EVIDENCE_MODE", "Disabled")
 FABRIC_EVIDENCE_API_GROUP = os.getenv("FABRIC_EVIDENCE_API_GROUP", "networking.re8ch.com")
 FABRIC_EVIDENCE_API_VERSION = os.getenv("FABRIC_EVIDENCE_API_VERSION", "v1alpha2")
@@ -1070,6 +1071,11 @@ class HTTPHandler(BaseHTTPRequestHandler):
 
 
 def main():
+    DNS_READY.clear()
+    try:
+        os.unlink(DNS_READY_MARKER)
+    except FileNotFoundError:
+        pass
     if RECORDS_FILE and not reload_records():
         raise RuntimeError("unable to load record configuration")
     if NAMESERVERS_FILE and not reload_nameservers():
@@ -1108,6 +1114,8 @@ def main():
     tcp = ReusableTCPServer((dns_bind, DNS_PORT), TCPHandler)
     threading.Thread(target=udp.serve_forever, daemon=True).start()
     threading.Thread(target=tcp.serve_forever, daemon=True).start()
+    with open(DNS_READY_MARKER, "w", encoding="utf-8") as marker:
+        marker.write("ready\n")
     DNS_READY.set()
     print(f"node={NODE} area={AREA} region={REGION} dns={dns_bind}:{DNS_PORT} http=:{HTTP_PORT}", flush=True)
     threading.Event().wait()
