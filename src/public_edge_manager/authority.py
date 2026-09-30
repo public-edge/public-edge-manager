@@ -479,7 +479,10 @@ def probe(candidate, service, url):
         if accepted_probe_status(service, status):
             successes = previous.get("successes", 0) + 1
             failures = 0
-            ready = previous.get("ready", False) or successes >= 2
+            # A fresh process has no previous observation to preserve. The
+            # first accepted response is already positive backend evidence;
+            # requiring another probe leaves authoritative DNS empty at boot.
+            ready = previous.get("ready", False) or not previous or successes >= 2
         else:
             successes = 0
             failures = previous.get("failures", 0) + 1
@@ -955,6 +958,8 @@ def dns_response(query, source_ip=""):
             rcode = 3
         elif qtype in (1, 255):
             answers.extend(service_address_records(name, service, request_area))
+            if not answers:
+                rcode = 2
         elif qtype == 2:
             answers.extend(rr(name, 2, 300, encode_name(ns)) for ns in NAMESERVERS)
         elif qtype == 6:
@@ -971,7 +976,12 @@ def dns_response(query, source_ip=""):
             answers.extend(external_address_records(name, qtype))
         elif service and qtype in (1, 255):
             answers.extend(service_address_records(name, service, request_area))
-        if not answers:
+        if service and qtype in (1, 255) and not answers:
+            # A managed name exists, but its target is temporarily unknown.
+            # NODATA plus SOA would make recursive resolvers cache the outage
+            # as a negative answer instead of trying another authority.
+            rcode = 2
+        elif not answers:
             authorities.append(soa_rr(zone))
 
     response_flags = 0x8000 | (0x0400 if authoritative else 0) | (flags & 0x0100) | rcode

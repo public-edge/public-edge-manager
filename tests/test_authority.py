@@ -399,6 +399,26 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(answer_count, 0)
         self.assertEqual(authority_count, 1)
 
+    def test_managed_address_without_verified_target_returns_servfail(self):
+        authority.AUTHORITY_ZONES = ["example.com."]
+        with mock.patch.object(authority, "NAMESERVERS", ["ns1.example.com."]):
+            response = authority.dns_response(self.dns_query("app.example.com.", 1))
+        _, flags, _, answer_count, authority_count, _ = struct.unpack("!HHHHHH", response[:12])
+        self.assertEqual(flags & 0x000F, 2)
+        self.assertEqual((answer_count, authority_count), (0, 0))
+
+    def test_first_accepted_probe_qualifies_fresh_process(self):
+        candidate = {"id": "edge-a", "ip": "192.0.2.10"}
+        response = mock.Mock(status=200)
+        connection = mock.Mock()
+        connection.getresponse.return_value = response
+        with mock.patch.object(authority.socket, "create_connection"), \
+             mock.patch.object(authority.ssl, "create_default_context"), \
+             mock.patch.object(authority.http.client, "HTTPConnection", return_value=connection):
+            authority.probe(candidate, "app", "https://app.example.com/healthz")
+        self.assertTrue(authority.HEALTH["app"]["edge-a"]["ready"])
+        self.assertEqual(authority.HEALTH["app"]["edge-a"]["successes"], 1)
+
     def test_external_cdn_cname_is_answered_without_public_edge(self):
         authority.AUTHORITY_ZONES = ["edge.example."]
         authority.EXTERNAL_RECORDS = {"assets.edge.example.": [{
