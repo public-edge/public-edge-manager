@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/public-edge/public-edge-manager
-  tag: "0.6.16"
+  tag: "0.6.17"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -21,6 +21,10 @@ readinessGates: {}
 discovery:
   enabled: true
   replicas: 2
+  # Place discovery controllers at independent public vantage points so DNS
+  # authority checks exercise the Internet path rather than local hairpin NAT.
+  probeNodeNames: []
+  tolerations: []
   intervalSeconds: 15
   probeTimeoutSeconds: 2
   # Unknown uplink capacity is not enough to qualify as a public edge.
