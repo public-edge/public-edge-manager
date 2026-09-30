@@ -6,6 +6,9 @@ data:
   API_GROUP: {{ .Values.api.group | quote }}
   NAMESERVERS: {{ join " " .Values.nameservers | quote }}
   SOA_RNAME: {{ .Values.dns.soaRname | quote }}
+  AXFR_ZONES_JSON: {{ .Values.dns.axfrZones | toJson | quote }}
+  AXFR_ALLOWED_CIDRS_JSON: {{ .Values.dns.axfrAllowedCidrs | toJson | quote }}
+  SECONDARY_NAMESERVERS_BY_ZONE_JSON: {{ .Values.discovery.secondaryNameserversByZone | toJson | quote }}
   PROBE_USER_AGENT: {{ .Values.probe.userAgent | quote }}
   PUBLICATION_ENABLED: {{ .Values.publication.enabled | quote }}
   PUBLICATION_REFS_JSON: {{ .Values.publication.refs | toJson | quote }}

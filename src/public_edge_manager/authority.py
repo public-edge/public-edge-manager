@@ -51,6 +51,13 @@ PUBLICATION_ADAPTERS = json.loads(os.getenv("PUBLICATION_ADAPTERS_JSON", "{}"))
 PUBLICATION_ENABLED = os.getenv("PUBLICATION_ENABLED", "false").lower() == "true"
 READINESS_GATES = json.loads(os.getenv("READINESS_GATES_JSON", "{}"))
 SOA_RNAME = os.getenv("SOA_RNAME", "hostmaster.invalid.")
+AXFR_ZONES = {f"{zone.rstrip('.').lower()}." for zone in json.loads(os.getenv("AXFR_ZONES_JSON", "[]"))}
+AXFR_ALLOWED_CIDRS = [ipaddress.ip_network(value) for value in json.loads(os.getenv("AXFR_ALLOWED_CIDRS_JSON", "[]"))]
+SECONDARY_NAMESERVERS_BY_ZONE = {
+    f"{zone.rstrip('.').lower()}.": [f"{name.rstrip('.').lower()}." for name in names]
+    for zone, names in json.loads(os.getenv("SECONDARY_NAMESERVERS_BY_ZONE_JSON", "{}")).items()
+}
+ZONE_SERIALS = {}
 USER_AGENT = os.getenv("PROBE_USER_AGENT", "public-edge-manager/0.3")
 CANDIDATE_CAPACITY_WEIGHT = max(0, int(os.getenv("CANDIDATE_CAPACITY_WEIGHT", "10")))
 CANDIDATE_LOCAL_AREA_BONUS = max(0, int(os.getenv("CANDIDATE_LOCAL_AREA_BONUS", "100000")))
@@ -891,14 +898,113 @@ def matching_authority_zone(name):
     )
 
 
-def soa_rr(zone):
-    serial = int(time.strftime("%Y%m%d") + "01")
+def soa_rr(zone, serial=None):
+    if serial is None:
+        serial = zone_serial(zone) if zone in AXFR_ZONES else int(time.strftime("%Y%m%d") + "01")
     data = (
         encode_name(NAMESERVERS[0])
         + encode_name(SOA_RNAME)
         + struct.pack("!IIIII", serial, 60, 60, 86400, 30)
     )
     return rr(zone, 6, 300, data)
+
+
+def zone_nameservers(zone):
+    with LOCK:
+        primary = list(NAMESERVERS)
+    return list(dict.fromkeys([*primary, *SECONDARY_NAMESERVERS_BY_ZONE.get(zone, [])]))
+
+
+def zone_records(zone):
+    """Build the global view transferred to a secondary authority."""
+    nameservers = zone_nameservers(zone)
+    with LOCK:
+        services = dict(SERVICES)
+        external = dict(EXTERNAL_RECORDS)
+    records = [rr(zone, 2, 300, encode_name(ns)) for ns in nameservers]
+    for name, service in sorted(services.items()):
+        if matching_authority_zone(name) == zone:
+            records.extend(service_address_records(name, service, "GLOBAL"))
+    for name in sorted(external):
+        if matching_authority_zone(name) == zone:
+            records.extend(external_address_records(name, 255))
+    return records
+
+
+def zone_serial(zone, records=None):
+    if records is None:
+        records = zone_records(zone)
+    digest = hashlib.sha256(b"".join(records)).digest()
+    with LOCK:
+        previous = ZONE_SERIALS.get(zone)
+        if previous is None or previous[0] != digest:
+            # Preserve the serial ordering of existing YYYYMMDDNN zones.
+            serial = max(int(time.strftime("%Y%m%d") + "01"), previous[1] + 1 if previous else 0)
+            ZONE_SERIALS[zone] = (digest, serial)
+        return ZONE_SERIALS[zone][1]
+
+
+def axfr_messages(query, source_ip):
+    """Return RFC 5936 DNS messages for one TCP AXFR, or a DNS error."""
+    if len(query) < 12:
+        return []
+    ident, flags, qdcount = struct.unpack("!HHH", query[:6])
+    if qdcount != 1:
+        return []
+    try:
+        name, offset = parse_name(query, 12)
+        qtype, qclass = struct.unpack("!HH", query[offset:offset + 4])
+    except (ValueError, struct.error):
+        return []
+    if qtype != 252:
+        return [dns_response(query, source_ip)]
+    question = query[12:offset + 4]
+    try:
+        allowed = any(ipaddress.ip_address(source_ip) in cidr for cidr in AXFR_ALLOWED_CIDRS)
+    except ValueError:
+        allowed = False
+    if qclass != 1 or name not in AXFR_ZONES or name not in AUTHORITY_ZONES or not allowed:
+        header = struct.pack("!HHHHHH", ident, 0x8000 | (flags & 0x0100) | 5, 1, 0, 0, 0)
+        return [header + question]
+    records = zone_records(name)
+    opening_soa = soa_rr(name, zone_serial(name, records))
+    transfer = [opening_soa, *records, opening_soa]
+    messages = []
+    chunk = []
+    size = 12 + len(question)
+    for record in transfer:
+        if chunk and size + len(record) > 60000:
+            header = struct.pack("!HHHHHH", ident, 0x8400 | (flags & 0x0100), 1, len(chunk), 0, 0)
+            messages.append(header + question + b"".join(chunk))
+            chunk, size = [], 12 + len(question)
+        chunk.append(record)
+        size += len(record)
+    if chunk:
+        header = struct.pack("!HHHHHH", ident, 0x8400 | (flags & 0x0100), 1, len(chunk), 0, 0)
+        messages.append(header + question + b"".join(chunk))
+    return messages
+
+
+def dns_question_type(query):
+    try:
+        _, offset = parse_name(query, 12)
+        return struct.unpack("!H", query[offset:offset + 2])[0]
+    except (ValueError, struct.error):
+        return None
+
+
+def refused_response(query):
+    if len(query) < 12:
+        return b""
+    try:
+        _, offset = parse_name(query, 12)
+    except ValueError:
+        return b""
+    if offset + 4 > len(query):
+        return b""
+    ident, flags = struct.unpack("!HH", query[:4])
+    question = query[12:offset + 4]
+    return struct.pack("!HHHHHH", ident, 0x8000 | (flags & 0x0100) | 5, 1, 0, 0, 0) + question
 
 
 def service_address_records(name, service, request_area=None):
@@ -971,7 +1077,7 @@ def dns_response(query, source_ip=""):
         if not name_exists:
             rcode = 3
         elif name == zone and qtype == 2:
-            answers.extend(rr(zone, 2, 300, encode_name(ns)) for ns in NAMESERVERS)
+            answers.extend(rr(zone, 2, 300, encode_name(ns)) for ns in zone_nameservers(zone))
         elif name == zone and qtype == 6:
             answers.append(soa_rr(zone))
         elif name in EXTERNAL_RECORDS:
@@ -994,6 +1100,11 @@ def dns_response(query, source_ip=""):
 class UDPHandler(socketserver.BaseRequestHandler):
     def handle(self):
         data, sock = self.request
+        if dns_question_type(data) == 252:
+            response = refused_response(data)
+            if response:
+                sock.sendto(response, self.client_address)
+            return
         response = dns_response(data, self.client_address[0])
         if response:
             sock.sendto(response, self.client_address)
@@ -1019,9 +1130,9 @@ class TCPHandler(socketserver.BaseRequestHandler):
             if not part:
                 return
             data += part
-        response = dns_response(data, self.client_address[0])
-        if response:
-            self.request.sendall(struct.pack("!H", len(response)) + response)
+        for response in axfr_messages(data, self.client_address[0]):
+            if response:
+                self.request.sendall(struct.pack("!H", len(response)) + response)
 
 
 class HTTPHandler(BaseHTTPRequestHandler):

@@ -51,6 +51,11 @@
         "serviceClasses": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
         "parentZone": {"type": "string"},
         "childZones": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "secondaryNameserversByZone": {
+          "type": "object",
+          "additionalProperties": {"type": "array", "uniqueItems": true,
+            "items": {"type": "string", "minLength": 2}}
+        },
         "cloudflareSecretRef": {
           "type": "object",
           "properties": {
@@ -76,6 +81,10 @@
       "properties": {
         "soaRname": { "type": "string", "pattern": "\\.$" },
         "nameserversConfigMap": { "type": "string" },
+        "axfrZones": {"type": "array", "uniqueItems": true,
+          "items": {"type": "string", "minLength": 2}},
+        "axfrAllowedCidrs": {"type": "array", "uniqueItems": true,
+          "items": {"type": "string", "minLength": 3}},
         "zones": {
           "type": "array",
           "uniqueItems": true,
