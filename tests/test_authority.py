@@ -490,6 +490,21 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(struct.unpack("!H", response[6:8])[0], 1)
         self.assertEqual(self.dns_records(response)[0][1:3], ("assets.edge.example.", 5))
 
+    def test_static_txt_is_answered_and_included_in_zone_transfer(self):
+        authority.AUTHORITY_ZONES = ["edge.example."]
+        authority.AXFR_ZONES = {"edge.example."}
+        authority.AXFR_ALLOWED_CIDRS = [ipaddress.ip_network("192.0.2.0/24")]
+        authority.NAMESERVERS = ["ns1.edge.example."]
+        authority.EXTERNAL_RECORDS = {"proof.edge.example.": [{
+            "type": "TXT", "value": "ownership-proof", "externalCDN": True,
+        }]}
+        response = authority.dns_response(self.dns_query("proof.edge.example.", 16))
+        self.assertEqual(self.dns_records(response)[0][2:6],
+                         (16, 1, 30, b"\x0fownership-proof"))
+        transfer = authority.axfr_messages(self.dns_query("edge.example.", 252), "192.0.2.1")
+        self.assertTrue(any(record[2] == 16 and record[5] == b"\x0fownership-proof"
+                            for message in transfer for record in self.dns_records(message)))
+
     def test_external_record_other_type_is_nodata(self):
         authority.AUTHORITY_ZONES = ["edge.example."]
         authority.EXTERNAL_RECORDS = {"assets.edge.example.": [{

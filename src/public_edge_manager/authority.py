@@ -163,7 +163,7 @@ def reload_records():
                 raise ValueError(f"external record {name} conflicts with a zone or managed service")
             if not all(isinstance(item, dict) for item in records):
                 raise ValueError(f"external record {name} must contain record objects")
-            if any(item.get("type") not in ("A", "AAAA", "CNAME") or not item.get("externalCDN") for item in records):
+            if any(item.get("type") not in ("A", "AAAA", "CNAME", "TXT") or not item.get("externalCDN") for item in records):
                 raise ValueError(f"external record {name} requires supported type and externalCDN marker")
             if any(item["type"] == "CNAME" for item in records) and len(records) != 1:
                 raise ValueError(f"external CNAME {name} must be the only record at its name")
@@ -172,6 +172,9 @@ def reload_records():
                     encode_name(item["value"])
                 elif item["type"] == "A":
                     ipaddress.IPv4Address(item["value"])
+                elif item["type"] == "TXT":
+                    if not isinstance(item.get("value"), str) or len(item["value"].encode("utf-8")) > 255:
+                        raise ValueError(f"external TXT {name} must fit in one DNS character-string")
                 else:
                     ipaddress.IPv6Address(item["value"])
         if not isinstance(runtime.get("model", {}), dict):
@@ -1032,6 +1035,9 @@ def external_address_records(name, qtype):
             records.append(rr(name, 1, 30, ipaddress.IPv4Address(item["value"]).packed))
         elif kind == "AAAA" and qtype in (28, 255):
             records.append(rr(name, 28, 30, ipaddress.IPv6Address(item["value"]).packed))
+        elif kind == "TXT" and qtype in (16, 255):
+            value = item["value"].encode("utf-8")
+            records.append(rr(name, 16, 30, bytes([len(value)]) + value))
     return records
 
 
@@ -1195,7 +1201,7 @@ def main():
         zone = matching_authority_zone(name)
         if not zone or name == zone or name in SERVICES or not records:
             raise RuntimeError(f"external record {name} conflicts with a zone or managed service")
-        if any(item.get("type") not in ("A", "AAAA", "CNAME") or
+        if any(item.get("type") not in ("A", "AAAA", "CNAME", "TXT") or
                not item.get("externalCDN") for item in records):
             raise RuntimeError(f"external record {name} requires supported type and externalCDN marker")
         if any(item["type"] == "CNAME" for item in records) and len(records) != 1:
@@ -1205,6 +1211,9 @@ def main():
                 encode_name(item["value"])
             elif item["type"] == "A":
                 ipaddress.IPv4Address(item["value"])
+            elif item["type"] == "TXT":
+                if not isinstance(item.get("value"), str) or len(item["value"].encode("utf-8")) > 255:
+                    raise RuntimeError(f"external TXT {name} must fit in one DNS character-string")
             else:
                 ipaddress.IPv6Address(item["value"])
     if not SERVICE_DEFINITIONS:

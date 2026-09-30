@@ -100,7 +100,7 @@
               "additionalProperties": false,
               "required": ["type", "value", "externalCDN"],
               "properties": {
-                "type": {"enum": ["A", "AAAA", "CNAME"]},
+                "type": {"enum": ["A", "AAAA", "CNAME", "TXT"]},
                 "value": {"type": "string", "minLength": 1},
                 "externalCDN": {"const": true},
                 "provider": {"type": "string", "minLength": 1}
