@@ -58,6 +58,9 @@ SECONDARY_NAMESERVERS_BY_ZONE = {
     for zone, names in json.loads(os.getenv("SECONDARY_NAMESERVERS_BY_ZONE_JSON", "{}")).items()
 }
 ZONE_SERIALS = {}
+# Keep the first clock-based serial above the previously published YYYYMMDDNN
+# values. The clock also keeps serials increasing across authority restarts.
+SOA_SERIAL_UNIX_OFFSET = 300_000_000
 USER_AGENT = os.getenv("PROBE_USER_AGENT", "public-edge-manager/0.3")
 CANDIDATE_CAPACITY_WEIGHT = max(0, int(os.getenv("CANDIDATE_CAPACITY_WEIGHT", "10")))
 CANDIDATE_LOCAL_AREA_BONUS = max(0, int(os.getenv("CANDIDATE_LOCAL_AREA_BONUS", "100000")))
@@ -941,8 +944,8 @@ def zone_serial(zone, records=None):
     with LOCK:
         previous = ZONE_SERIALS.get(zone)
         if previous is None or previous[0] != digest:
-            # Preserve the serial ordering of existing YYYYMMDDNN zones.
-            serial = max(int(time.strftime("%Y%m%d") + "01"), previous[1] + 1 if previous else 0)
+            serial = max(int(time.time()) + SOA_SERIAL_UNIX_OFFSET,
+                         previous[1] + 1 if previous else 0)
             ZONE_SERIALS[zone] = (digest, serial)
         return ZONE_SERIALS[zone][1]
 

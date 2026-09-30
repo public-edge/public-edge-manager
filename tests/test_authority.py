@@ -192,6 +192,18 @@ class AuthorityTests(unittest.TestCase):
         next_serial = struct.unpack("!I", self.dns_records(updated[0])[0][5][-20:-16])[0]
         self.assertGreater(next_serial, first_serial)
 
+    def test_zone_serial_stays_newer_after_authority_restart(self):
+        zone = "example.com."
+        with mock.patch.object(authority.time, "time", return_value=1790810455):
+            first = authority.zone_serial(zone, [b"first"])
+            changed = authority.zone_serial(zone, [b"changed"])
+        self.assertGreater(first, 2026093060)
+        self.assertEqual(changed, first + 1)
+        authority.ZONE_SERIALS.clear()  # A new process has no in-memory state.
+        with mock.patch.object(authority.time, "time", return_value=1790810460):
+            restarted = authority.zone_serial(zone, [b"changed"])
+        self.assertGreater(restarted, changed)
+
     def test_axfr_is_tcp_only_and_denied_without_matching_acl(self):
         authority.AUTHORITY_ZONES = ["example.com."]
         authority.AXFR_ZONES = {"example.com."}
