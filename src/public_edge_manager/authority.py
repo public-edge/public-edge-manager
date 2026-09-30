@@ -735,10 +735,10 @@ def stable_selected(service, candidates, request_area=None, timestamp=None):
     timestamp = time.time() if timestamp is None else timestamp
     area = request_area or AREA
     key = (service, area)
-    # Transport readiness alone is not sufficient for a service answer.  Keep
-    # edge transport and backend health separate in discovery output, but never
-    # publish an edge whose probe for this specific service is failing.  Legacy
-    # callers without serviceBackendReady retain their previous behaviour.
+    # Transport readiness alone is not sufficient for a new service answer.
+    # Brief probe transport failures may retain a previously healthy answer;
+    # explicit HTTP failures still withdraw it. Legacy callers without
+    # serviceBackendReady retain their previous behaviour.
     ready = [
         item for item in candidates
         if item["state"] == "ready" and item.get("serviceBackendReady", True)
@@ -753,27 +753,35 @@ def stable_selected(service, candidates, request_area=None, timestamp=None):
             SELECTIONS[key] = {
                 "selected": selected["id"], "snapshot": selected,
                 "selectedAt": timestamp, "unavailableAt": None,
-                "pending": None, "pendingAt": None,
+                "pending": None, "pendingAt": None, "hardFailure": False,
             }
             return selected
 
         current = by_id.get(state["selected"])
         if (current and current["state"] == "ready"
                 and current.get("serviceBackendReady", True)):
-            state.update(snapshot=dict(current), unavailableAt=None, pending=None, pendingAt=None)
+            state.update(snapshot=dict(current), unavailableAt=None, pending=None,
+                         pendingAt=None, hardFailure=False)
             return dict(current)
 
-        # A failed service probe is positive evidence that this endpoint cannot
-        # serve the requested hostname (for example, TLS accepts TCP and then
-        # closes during the handshake).  Do not retain that address through the
-        # transport failover grace window.
+        # Prefer a healthy replacement immediately. If every probe has a
+        # transport error, keep the last verified address for a bounded grace
+        # period instead of publishing intermittent empty DNS answers. An
+        # explicit HTTP failure still withdraws the address immediately.
         if current and current.get("serviceBackendReady") is False:
             if not ready:
-                state.update(unavailableAt=timestamp, pending=None, pendingAt=None)
+                if state["unavailableAt"] is None:
+                    state["unavailableAt"] = timestamp
+                state.update(pending=None, pendingAt=None)
+                if (not current.get("statusCode") and not state.get("hardFailure") and
+                        timestamp - state["unavailableAt"] < CANDIDATE_FAILOVER_GRACE_SECONDS):
+                    return dict(state["snapshot"])
+                if current.get("statusCode"):
+                    state["hardFailure"] = True
                 return None
             selected = dict(ready[0])
             state.update(selected=selected["id"], snapshot=selected, selectedAt=timestamp,
-                         unavailableAt=None, pending=None, pendingAt=None)
+                         unavailableAt=None, pending=None, pendingAt=None, hardFailure=False)
             return selected
 
         if state["unavailableAt"] is None:
@@ -791,7 +799,7 @@ def stable_selected(service, candidates, request_area=None, timestamp=None):
         if grace_elapsed and ready_elapsed and hold_elapsed:
             selected = dict(replacement)
             state.update(selected=selected["id"], snapshot=selected, selectedAt=timestamp,
-                         unavailableAt=None, pending=None, pendingAt=None)
+                         unavailableAt=None, pending=None, pendingAt=None, hardFailure=False)
             return selected
         return dict(state["snapshot"])
 
