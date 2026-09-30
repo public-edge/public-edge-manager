@@ -42,6 +42,8 @@ discovery:
   serviceClasses: [api, web, registry, db-ro, db-rw]
   parentZone: ""
   childZones: []
+  # External secondary authorities retained alongside elected primary NS.
+  secondaryNameserversByZone: {}
   cloudflareSecretRef: {}
 
 runtime:
@@ -71,6 +73,9 @@ probe:
 
 dns:
   soaRname: hostmaster.invalid.
+  # TCP AXFR is disabled until both a zone and source CIDRs are configured.
+  axfrZones: []
+  axfrAllowedCidrs: []
   # Optional ConfigMap with nameservers.json: {"nameservers":["ns1.example."]}.
   # A controller can update this without restarting the authority process.
   nameserversConfigMap: ""

@@ -45,6 +45,10 @@ NAMESERVER_CONFIGMAP = os.getenv("NAMESERVER_CONFIGMAP", "public-edge-nameserver
 MAX_NAMESERVERS = max(1, min(3, int(os.getenv("MAX_NAMESERVERS", "3"))))
 PARENT_ZONE = os.getenv("PARENT_ZONE", "").rstrip(".").lower()
 CHILD_ZONES = [value.rstrip(".").lower() for value in json.loads(os.getenv("CHILD_ZONES_JSON", "[]"))]
+SECONDARY_NAMESERVERS_BY_ZONE = {
+    zone.rstrip(".").lower(): {name.rstrip(".").lower() for name in names}
+    for zone, names in json.loads(os.getenv("SECONDARY_NAMESERVERS_BY_ZONE_JSON", "{}")).items()
+}
 CF_TOKEN = os.getenv("CF_API_TOKEN", "")
 CF_SECRET_NAMESPACE = os.getenv("CF_SECRET_NAMESPACE", "")
 CF_SECRET_NAME = os.getenv("CF_SECRET_NAME", "")
@@ -360,13 +364,14 @@ def reconcile_cloudflare(selected):
                 cloudflare("DELETE", f"{prefix}/{record['id']}")
     desired = {item["ns"].rstrip(".") for item in selected}
     for child in CHILD_ZONES:
+        child_desired = desired | SECONDARY_NAMESERVERS_BY_ZONE.get(child, set())
         current = [record for record in records(child) if record["type"] == "NS"]
         existing = {record["content"].rstrip(".") for record in current}
-        for ns in desired - existing:
+        for ns in child_desired - existing:
             cloudflare("POST", prefix, {"type": "NS", "name": child, "content": ns, "ttl": 300,
                                          "comment": "PublicEdge dynamic delegation"})
         for record in current:
-            if record["content"].rstrip(".") not in desired:
+            if record["content"].rstrip(".") not in child_desired:
                 cloudflare("DELETE", f"{prefix}/{record['id']}")
 
 

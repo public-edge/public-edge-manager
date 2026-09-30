@@ -30,6 +30,39 @@ def assessment(name="edge", state="Ready", reachable=True):
 
 
 class ControllerTests(unittest.TestCase):
+    def test_cloudflare_keeps_declared_secondary_ns_for_one_child_zone(self):
+        records = {
+            "service.re8ch.com": [{"id": "old", "type": "NS", "content": "stale.re8ch.com"}],
+            "api.re8ch.com": [],
+        }
+        changes = []
+
+        def cloudflare(method, path, payload=None):
+            if path.startswith("/zones?"):
+                return [{"id": "zone"}]
+            if method == "GET":
+                name = path.split("name=")[-1].split("&")[0]
+                return records.get(name, [])
+            changes.append((method, path, payload))
+            return {}
+
+        selected = [{"ns": "primary.re8ch.com.", "ip": "203.0.113.1"}]
+        with mock.patch.object(controller, "CF_TOKEN", "test-token"), \
+             mock.patch.object(controller, "PARENT_ZONE", "re8ch.com"), \
+             mock.patch.object(controller, "CHILD_ZONES", ["service.re8ch.com", "api.re8ch.com"]), \
+             mock.patch.object(controller, "SECONDARY_NAMESERVERS_BY_ZONE", {
+                 "service.re8ch.com": {"ns1.he.net", "ns2.he.net"}}), \
+             mock.patch.object(controller, "cloudflare", side_effect=cloudflare):
+            controller.reconcile_cloudflare(selected)
+        service_ns = {payload["content"] for method, _, payload in changes
+                      if method == "POST" and payload["type"] == "NS"
+                      and payload["name"] == "service.re8ch.com"}
+        api_ns = {payload["content"] for method, _, payload in changes
+                  if method == "POST" and payload["type"] == "NS"
+                  and payload["name"] == "api.re8ch.com"}
+        self.assertEqual(service_ns, {"primary.re8ch.com", "ns1.he.net", "ns2.he.net"})
+        self.assertEqual(api_ns, {"primary.re8ch.com"})
+
     def test_lease_timestamp_uses_kubernetes_microtime(self):
         self.assertRegex(controller.now_rfc3339(), r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
 

@@ -1,5 +1,6 @@
 
 import os
+import ipaddress
 import json
 import tempfile
 import io
@@ -36,6 +37,9 @@ class AuthorityTests(unittest.TestCase):
         authority.FABRIC_REQUIRE_NODE_READY = False
         authority.FABRIC_EVIDENCE_ALLOWED_STATES = {"Ready", "Partial"}
         authority.AUTHORITY_ZONES = []
+        authority.AXFR_ZONES = set()
+        authority.AXFR_ALLOWED_CIDRS = []
+        authority.ZONE_SERIALS.clear()
         authority.EXTERNAL_RECORDS = {}
         authority.SELECTIONS.clear()
         authority.DNS_READY.clear()
@@ -156,6 +160,44 @@ class AuthorityTests(unittest.TestCase):
                 records.append((section, name, qtype, qclass, ttl, response[offset:offset + length]))
                 offset += length
         return records
+
+    def test_axfr_transfers_complete_zone_and_tracks_serial_changes(self):
+        authority.AUTHORITY_ZONES = ["example.com."]
+        authority.AXFR_ZONES = {"example.com."}
+        authority.AXFR_ALLOWED_CIDRS = [ipaddress.ip_network("192.0.2.0/24")]
+        authority.NAMESERVERS = ["ns1.example.com."]
+        authority.EXTERNAL_RECORDS = {
+            "cdn.example.com.": [{"type": "CNAME", "value": "cdn.example.net."}]
+        }
+        authority.CANDIDATES[:] = [{"id": "edge", "region": "us", "area": "GLOBAL",
+                                     "ip": "203.0.113.7", "edgeReady": True,
+                                     "capacityMbps": 100, "probes": {"app": "https://app.example.com/"}}]
+        authority.HEALTH["app"]["edge"] = {"ready": True, "observedAt": int(time.time())}
+        query = self.dns_query("example.com.", 252)
+        messages = authority.axfr_messages(query, "192.0.2.3")
+        records = [record for message in messages for record in self.dns_records(message)]
+        self.assertEqual(records[0][2], 6)
+        self.assertEqual(records[-1], records[0])
+        self.assertIn(("answer", "app.example.com.", 1, 1, 30,
+                       ipaddress.IPv4Address("203.0.113.7").packed), records)
+        self.assertIn(5, [record[2] for record in records])
+        self.assertIn(2, [record[2] for record in records])
+        first_serial = struct.unpack("!I", records[0][5][-20:-16])[0]
+        self.assertEqual(first_serial, struct.unpack("!I", self.dns_records(
+            authority.dns_response(self.dns_query("example.com.", 6))
+        )[0][5][-20:-16])[0])
+        authority.CANDIDATES[0]["ip"] = "203.0.113.8"
+        updated = authority.axfr_messages(query, "192.0.2.3")
+        next_serial = struct.unpack("!I", self.dns_records(updated[0])[0][5][-20:-16])[0]
+        self.assertGreater(next_serial, first_serial)
+
+    def test_axfr_is_tcp_only_and_denied_without_matching_acl(self):
+        authority.AUTHORITY_ZONES = ["example.com."]
+        authority.AXFR_ZONES = {"example.com."}
+        authority.AXFR_ALLOWED_CIDRS = [ipaddress.ip_network("192.0.2.0/24")]
+        query = self.dns_query("example.com.", 252)
+        self.assertEqual(struct.unpack("!H", authority.axfr_messages(query, "198.51.100.1")[0][2:4])[0] & 15, 5)
+        self.assertEqual(struct.unpack("!H", authority.refused_response(query)[2:4])[0] & 15, 5)
 
     @staticmethod
     def assessment(node="edge-node", state="Ready", valid_until="2099-01-01T00:00:00Z",
