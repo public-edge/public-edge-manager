@@ -13,6 +13,15 @@ spec:
     spec:
       serviceAccountName: {{ include "public-edge-manager.name" . }}
       affinity:
+        {{- with .Values.discovery.probeNodeNames }}
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: {{ . | toYaml | nindent 22 }}
+        {{- end }}
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
@@ -20,6 +29,9 @@ spec:
                 topologyKey: kubernetes.io/hostname
                 labelSelector:
                   matchLabels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}-controller}
+      {{- with .Values.discovery.tolerations }}
+      tolerations: {{ . | toYaml | nindent 8 }}
+      {{- end }}
       containers:
         - name: controller
           image: {{ include "public-edge-manager.image" . }}
