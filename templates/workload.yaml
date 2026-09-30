@@ -55,7 +55,7 @@ spec:
             - {name: nameservers, mountPath: /etc/public-edge-nameservers, readOnly: true}
             {{- end }}
           readinessProbe: {httpGet: {path: /healthz, port: {{ .Values.workload.httpPort }}}, periodSeconds: 5}
-          livenessProbe: {httpGet: {path: /healthz, port: {{ .Values.workload.httpPort }}}, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /livez, port: {{ .Values.workload.httpPort }}}, periodSeconds: 10}
           resources: {{ .Values.resources | toYaml | nindent 12 }}
           securityContext: {{ .Values.workload.containerSecurityContext | toYaml | nindent 12 }}
       volumes:

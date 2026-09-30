@@ -2,6 +2,7 @@
 import os
 import json
 import tempfile
+import io
 
 import struct
 import time
@@ -37,6 +38,23 @@ class AuthorityTests(unittest.TestCase):
         authority.AUTHORITY_ZONES = []
         authority.EXTERNAL_RECORDS = {}
         authority.SELECTIONS.clear()
+        authority.DNS_READY.clear()
+
+    def test_healthz_waits_for_dns_listeners_and_livez_stays_available(self):
+        handler = authority.HTTPHandler.__new__(authority.HTTPHandler)
+        handler.send_response = mock.Mock()
+        handler.end_headers = mock.Mock()
+        handler.wfile = io.BytesIO()
+        handler.path = "/healthz"
+        handler.do_GET()
+        handler.send_response.assert_called_with(503)
+        handler.path = "/livez"
+        handler.do_GET()
+        handler.send_response.assert_called_with(200)
+        authority.DNS_READY.set()
+        handler.path = "/healthz"
+        handler.do_GET()
+        handler.send_response.assert_called_with(200)
 
     def test_nameserver_election_reloads_one_or_two_and_keeps_last_good_result(self):
         authority.NAMESERVERS = ["old.example.com."]
