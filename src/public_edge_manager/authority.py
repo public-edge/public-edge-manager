@@ -62,6 +62,7 @@ CANDIDATE_FAILOVER_GRACE_SECONDS = max(0, int(os.getenv("CANDIDATE_FAILOVER_GRAC
 CANDIDATE_MIN_READY_SECONDS = max(0, int(os.getenv("CANDIDATE_MIN_READY_SECONDS", "120")))
 CANDIDATE_MIN_HOLD_SECONDS = max(0, int(os.getenv("CANDIDATE_MIN_HOLD_SECONDS", "600")))
 SELECTIONS = {}
+DNS_READY = threading.Event()
 FABRIC_EVIDENCE_MODE = os.getenv("FABRIC_EVIDENCE_MODE", "Disabled")
 FABRIC_EVIDENCE_API_GROUP = os.getenv("FABRIC_EVIDENCE_API_GROUP", "networking.re8ch.com")
 FABRIC_EVIDENCE_API_VERSION = os.getenv("FABRIC_EVIDENCE_API_VERSION", "v1alpha2")
@@ -1025,11 +1026,12 @@ class TCPHandler(socketserver.BaseRequestHandler):
 class HTTPHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path == "/healthz":
-            self.send_response(200)
+        if parsed.path in ("/healthz", "/livez"):
+            ready = parsed.path == "/livez" or DNS_READY.is_set()
+            self.send_response(200 if ready else 503)
             self.end_headers()
             try:
-                self.wfile.write(b"ok\n")
+                self.wfile.write(b"ok\n" if ready else b"dns starting\n")
             except (BrokenPipeError, ConnectionResetError):
                 pass
             return
@@ -1106,6 +1108,7 @@ def main():
     tcp = ReusableTCPServer((dns_bind, DNS_PORT), TCPHandler)
     threading.Thread(target=udp.serve_forever, daemon=True).start()
     threading.Thread(target=tcp.serve_forever, daemon=True).start()
+    DNS_READY.set()
     print(f"node={NODE} area={AREA} region={REGION} dns={dns_bind}:{DNS_PORT} http=:{HTTP_PORT}", flush=True)
     threading.Event().wait()
 
