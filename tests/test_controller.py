@@ -81,6 +81,22 @@ class ControllerTests(unittest.TestCase):
         stale["status"]["validUntil"] = "2000-01-01T00:00:00Z"
         self.assertFalse(controller.assessment_ready(stale, time.time()))
 
+    def test_dns_dependency_admission_requires_both_planes_and_fresh_success(self):
+        now = time.time()
+        item = assessment()
+        with mock.patch.object(controller, "REQUIRE_DNS_DEPENDENCIES", True):
+            self.assertFalse(controller.assessment_ready(item, now))
+            paths = [{"sourcePlane": plane, "observedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))}
+                     for plane in ("host", "pod")]
+            item["status"]["dependencyEvidence"] = {"dnsReady": True, "dnsComplete": True, "dnsPaths": paths}
+            self.assertTrue(controller.assessment_ready(item, now))
+            item["status"]["dependencyEvidence"]["dnsReady"] = False
+            self.assertFalse(controller.assessment_ready(item, now))
+            item["status"]["dependencyEvidence"]["dnsReady"] = True
+            self.assertFalse(controller.assessment_ready(item, now + 121))
+            paths.pop()
+            self.assertFalse(controller.assessment_ready(item, now))
+
     def test_capacity_annotation_overrides_default(self):
         self.assertEqual(controller.capacity(node_with_capacity(3)), 3)
         self.assertLess(controller.capacity(node_with_capacity(3)), controller.MINIMUM_CAPACITY)

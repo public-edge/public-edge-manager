@@ -24,6 +24,7 @@ data:
   CANDIDATE_MIN_READY_SECONDS: {{ .Values.candidateSelection.minReadySeconds | quote }}
   CANDIDATE_MIN_HOLD_SECONDS: {{ .Values.candidateSelection.minHoldSeconds | quote }}
   CLIENT_AREA_CIDRS_JSON: {{ .Values.candidateSelection.resolverCidrs | toJson | quote }}
+  FABRIC_REQUIRE_DNS_DEPENDENCIES: {{ .Values.fabricEvidence.requireDNSDependencies | quote }}
   FABRIC_EVIDENCE_MODE: {{ .Values.fabricEvidence.mode | quote }}
   FABRIC_EVIDENCE_API_GROUP: {{ .Values.fabricEvidence.apiGroup | quote }}
   FABRIC_EVIDENCE_API_VERSION: {{ .Values.fabricEvidence.apiVersion | quote }}
