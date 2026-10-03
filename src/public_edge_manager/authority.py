@@ -807,6 +807,10 @@ def stable_selected(service, candidates, request_area=None, timestamp=None):
         replacement = ready[0] if ready else None
         if replacement is None:
             state.update(pending=None, pendingAt=None)
+            # Missing candidates and expired fabric evidence must have the
+            # same bounded retention as a failed service transport probe.
+            if timestamp - state["unavailableAt"] >= CANDIDATE_FAILOVER_GRACE_SECONDS:
+                return None
             return dict(state["snapshot"])
         if state["pending"] != replacement["id"]:
             state.update(pending=replacement["id"], pendingAt=timestamp)
@@ -819,6 +823,10 @@ def stable_selected(service, candidates, request_area=None, timestamp=None):
             state.update(selected=selected["id"], snapshot=selected, selectedAt=timestamp,
                          unavailableAt=None, pending=None, pendingAt=None, hardFailure=False)
             return selected
+        # Qualification/hold timers may delay the replacement, but must not
+        # extend the lifetime of a failed address beyond the grace deadline.
+        if grace_elapsed:
+            return None
         return dict(state["snapshot"])
 
 

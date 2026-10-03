@@ -680,6 +680,26 @@ class AuthorityTests(unittest.TestCase):
         self.assertIsNone(authority.stable_selected(
             "app", [dict(failed_a, statusCode=0)], "US", 2))
 
+    def test_missing_candidate_retention_is_bounded_and_recovers(self):
+        edge = {"id": "edge-a", "ip": "192.0.2.10", "state": "ready"}
+        with mock.patch.object(authority, "CANDIDATE_FAILOVER_GRACE_SECONDS", 30):
+            authority.stable_selected("app", [edge], "US", 0)
+            self.assertEqual(authority.stable_selected("app", [], "US", 1)["id"], "edge-a")
+            self.assertIsNone(authority.stable_selected("app", [], "US", 31))
+            self.assertIsNone(authority.stable_selected("app", [], "US", 1000))
+            self.assertEqual(authority.stable_selected("app", [edge], "US", 1001)["id"], "edge-a")
+
+    def test_min_hold_cannot_extend_failed_address_retention(self):
+        edge = {"id": "edge-a", "ip": "192.0.2.10", "state": "ready"}
+        other = {"id": "edge-b", "ip": "192.0.2.11", "state": "ready"}
+        with mock.patch.object(authority, "CANDIDATE_FAILOVER_GRACE_SECONDS", 30), \
+             mock.patch.object(authority, "CANDIDATE_MIN_READY_SECONDS", 120), \
+             mock.patch.object(authority, "CANDIDATE_MIN_HOLD_SECONDS", 600):
+            authority.stable_selected("app", [edge], "US", 0)
+            self.assertEqual(authority.stable_selected("app", [other], "US", 1)["id"], "edge-a")
+            self.assertIsNone(authority.stable_selected("app", [other], "US", 31))
+            self.assertEqual(authority.stable_selected("app", [other], "US", 601)["id"], "edge-b")
+
     def test_disabled_publication_adapter_is_skipped(self):
         adapters = {
             "esa": {
