@@ -34,6 +34,8 @@ CLUSTER_INVENTORY_NAMESPACE = os.getenv("CLUSTER_INVENTORY_NAMESPACE", "")
 CLUSTER_INVENTORY_CONFIGMAP = os.getenv("CLUSTER_INVENTORY_CONFIGMAP", "")
 CLUSTER_INVENTORY_KEY = os.getenv("CLUSTER_INVENTORY_KEY", "nodes.json")
 ALLOWED_STATES = set(json.loads(os.getenv("FABRIC_EVIDENCE_ALLOWED_STATES_JSON", '["Ready","Partial"]')))
+REQUIRE_DNS_DEPENDENCIES = os.getenv("FABRIC_REQUIRE_DNS_DEPENDENCIES", "false").lower() == "true"
+DNS_DEPENDENCY_MAX_AGE = 120
 NPA_GROUP = os.getenv("FABRIC_EVIDENCE_API_GROUP", "networking.re8ch.com")
 NPA_VERSION = os.getenv("FABRIC_EVIDENCE_API_VERSION", "v1alpha2")
 NPA_RESOURCE = os.getenv("FABRIC_EVIDENCE_RESOURCE", "networkpathassessments")
@@ -136,6 +138,15 @@ def assessment_ready(item, timestamp=None):
     condition = next((entry for entry in status.get("conditions", [])
                       if entry.get("type") == "EvidenceReady"), {})
     tolerated_not_ready = set(evidence.get("missingEvidence", [])) == {"node-ready"}
+    if REQUIRE_DNS_DEPENDENCIES:
+        dependency = status.get("dependencyEvidence", {})
+        paths = dependency.get("dnsPaths", [])
+        if (dependency.get("dnsReady") is not True or dependency.get("dnsComplete") is not True
+                or {path.get("sourcePlane") for path in paths} != {"host", "pod"}
+                or any(not 0 <= timestamp - parse_time(path.get("observedAt")) <= DNS_DEPENDENCY_MAX_AGE
+                       for path in paths)):
+            return False
+
     return (status.get("state") in ALLOWED_STATES and
             parse_time(status.get("validUntil")) >= timestamp and
             (condition.get("status") == "True" or tolerated_not_ready) and

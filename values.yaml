@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/public-edge/public-edge-manager
-  tag: "0.6.24"
+  tag: "0.6.25"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -107,6 +107,7 @@ fabricEvidence:
   apiVersion: v1alpha2
   resource: networkpathassessments
   # Match Advanced Fabric path eligibility by excluding Kubernetes NotReady nodes.
+  requireDNSDependencies: false
   requireNodeReady: true
   allowedStates: [Ready, Partial]
 
