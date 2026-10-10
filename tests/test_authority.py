@@ -25,14 +25,14 @@ class AuthorityTests(unittest.TestCase):
             return io.BytesIO(b'{"items":[{"metadata":{"name":"edge"}}]}')
 
         with mock.patch.object(authority, "KUBERNETES_API", "10.43.0.1"), \
-             mock.patch.object(authority, "KUBERNETES_API_FALLBACK_URLS", ["https://10.181.22.128:6443"]), \
+             mock.patch.object(authority, "KUBERNETES_API_FALLBACK_URLS", ["https://203.0.113.128:6443"]), \
              mock.patch("builtins.open", mock.mock_open(read_data="token")), \
              mock.patch.object(authority.ssl, "create_default_context", return_value=object()), \
              mock.patch.object(authority.urllib.request, "urlopen", side_effect=open_url):
             result = authority.kubernetes_get("/apis/networking.re8ch.com/v1alpha1/publicedges")
         self.assertEqual(result["items"][0]["metadata"]["name"], "edge")
         self.assertEqual([entry[0].split("/apis/")[0] for entry in seen],
-                         ["https://10.43.0.1:443", "https://10.181.22.128:6443"])
+                         ["https://10.43.0.1:443", "https://203.0.113.128:6443"])
         self.assertIs(seen[0][1], seen[1][1])
 
     def setUp(self):
