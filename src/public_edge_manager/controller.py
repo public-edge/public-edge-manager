@@ -18,6 +18,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 
@@ -124,13 +125,30 @@ def dns_host_eligible(node, public_ip, uid, capacity_ready):
                 public_ip and uid and capacity_ready and node_ready(node))
 
 
+def dns_transport_ready(public_ip, zone, tcp):
+    """Require two of three public SOA replies to absorb isolated packet loss."""
+    successes = 0
+    for attempt in range(3):
+        successes += bool(dns_query(public_ip, zone, tcp))
+        if successes >= 2:
+            return True
+        if attempt + 1 - successes >= 2:
+            return False
+    return False
+
+
 def dns_authority_candidate(node, public_ip, uid, node_capacity, inventory=None):
     """Qualify public DNS independently of ingress and fabric path evidence."""
     if not (PARENT_ZONE and CHILD_ZONES and
             dns_host_eligible(node, public_ip, uid, node_capacity >= MINIMUM_CAPACITY)):
         return None
-    if not all(dns_query(public_ip, zone, tcp)
-               for zone in CHILD_ZONES for tcp in (False, True)):
+    transports = [(public_ip, zone, tcp) for zone in CHILD_ZONES for tcp in (False, True)]
+    # Run independent zone/transport checks together so the 2s timeout does
+    # not multiply by the number of delegated zones during a partial outage.
+    with ThreadPoolExecutor(max_workers=min(12, len(transports))) as executor:
+        results = executor.map(lambda args: dns_transport_ready(*args), transports)
+        ready = all(results)
+    if not ready:
         return None
     _, region = locality(node, inventory)
     return {"uid": uid, "ip": public_ip, "ns": nameserver_name(uid),

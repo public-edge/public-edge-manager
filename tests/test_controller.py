@@ -87,17 +87,25 @@ class ControllerTests(unittest.TestCase):
         candidate = node(name="overseas-la")
         with mock.patch.object(controller, "PARENT_ZONE", "example.com"), \
              mock.patch.object(controller, "CHILD_ZONES", ["api.example.com", "service.example.com"]), \
-             mock.patch.object(controller, "dns_query", return_value=True) as query:
+             mock.patch.object(controller, "dns_transport_ready", return_value=True) as query:
             selected = controller.dns_authority_candidate(candidate, "8.8.8.8", "uid-1", 1000)
             self.assertEqual(selected["ip"], "8.8.8.8")
             self.assertEqual(query.call_count, 4)
             query.reset_mock()
-            query.side_effect = [True, True, False]
+            query.return_value = False
             self.assertIsNone(controller.dns_authority_candidate(candidate, "8.8.8.8", "uid-1", 1000))
             candidate["status"]["conditions"][0]["status"] = "False"
             query.reset_mock()
             self.assertIsNone(controller.dns_authority_candidate(candidate, "8.8.8.8", "uid-1", 1000))
             query.assert_not_called()
+
+    def test_dns_transport_requires_majority_of_three_replies(self):
+        with mock.patch.object(controller, "dns_query", side_effect=[False, True, True]) as query:
+            self.assertTrue(controller.dns_transport_ready("8.8.8.8", "api.example.com", False))
+            self.assertEqual(query.call_count, 3)
+        with mock.patch.object(controller, "dns_query", side_effect=[True, False, False]) as query:
+            self.assertFalse(controller.dns_transport_ready("8.8.8.8", "api.example.com", True))
+            self.assertEqual(query.call_count, 3)
 
     def test_dns_dependency_admission_requires_both_planes_and_fresh_success(self):
         now = time.time()
