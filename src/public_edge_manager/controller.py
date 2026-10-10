@@ -49,6 +49,7 @@ NAMESERVER_CONFIGMAP = os.getenv("NAMESERVER_CONFIGMAP", "public-edge-nameserver
 MAX_NAMESERVERS = max(1, min(3, int(os.getenv("MAX_NAMESERVERS", "3"))))
 PARENT_ZONE = os.getenv("PARENT_ZONE", "").rstrip(".").lower()
 CHILD_ZONES = [value.rstrip(".").lower() for value in json.loads(os.getenv("CHILD_ZONES_JSON", "[]"))]
+ADDRESS_ZONES = [value.rstrip(".").lower() for value in json.loads(os.getenv("ADDRESS_ZONES_JSON", "[]"))]
 SECONDARY_NAMESERVERS_BY_ZONE = {
     zone.rstrip(".").lower(): {name.rstrip(".").lower() for name in names}
     for zone, names in json.loads(os.getenv("SECONDARY_NAMESERVERS_BY_ZONE_JSON", "{}")).items()
@@ -125,11 +126,11 @@ def dns_host_eligible(node, public_ip, uid, capacity_ready):
                 public_ip and uid and capacity_ready and node_ready(node))
 
 
-def dns_transport_ready(public_ip, zone, tcp):
-    """Require two of three public SOA replies to absorb isolated packet loss."""
+def dns_transport_ready(public_ip, zone, tcp, record_type=6):
+    """Require two of three authoritative replies to absorb isolated packet loss."""
     successes = 0
     for attempt in range(3):
-        successes += bool(dns_query(public_ip, zone, tcp))
+        successes += bool(dns_query(public_ip, zone, tcp, record_type))
         if successes >= 2:
             return True
         if attempt + 1 - successes >= 2:
@@ -142,7 +143,8 @@ def dns_authority_candidate(node, public_ip, uid, node_capacity, inventory=None)
     if not (PARENT_ZONE and CHILD_ZONES and
             dns_host_eligible(node, public_ip, uid, node_capacity >= MINIMUM_CAPACITY)):
         return None
-    transports = [(public_ip, zone, tcp) for zone in CHILD_ZONES for tcp in (False, True)]
+    transports = [(public_ip, zone, tcp, 6) for zone in CHILD_ZONES for tcp in (False, True)]
+    transports += [(public_ip, zone, tcp, 1) for zone in ADDRESS_ZONES for tcp in (False, True)]
     # Run independent zone/transport checks together so the 2s timeout does
     # not multiply by the number of delegated zones during a partial outage.
     with ThreadPoolExecutor(max_workers=min(12, len(transports))) as executor:
@@ -226,10 +228,10 @@ def tcp_probe(ip, port):
         return False
 
 
-def dns_query(ip, zone, tcp=False):
+def dns_query(ip, zone, tcp=False, record_type=6):
     ident = os.urandom(2)
     qname = b"".join(bytes([len(label)]) + label.encode() for label in zone.split(".")) + b"\0"
-    query = ident + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + qname + struct.pack("!HH", 6, 1)
+    query = ident + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + qname + struct.pack("!HH", record_type, 1)
     try:
         if tcp:
             with socket.create_connection((ip, 53), timeout=PROBE_TIMEOUT) as sock:
@@ -249,7 +251,9 @@ def dns_query(ip, zone, tcp=False):
                 sock.settimeout(PROBE_TIMEOUT)
                 sock.sendto(query, (ip, 53))
                 packet, _ = sock.recvfrom(4096)
-        return len(packet) >= 12 and packet[:2] == ident and (struct.unpack("!H", packet[2:4])[0] & 0x840F) == 0x8400
+        return (len(packet) >= 12 and packet[:2] == ident and
+                (struct.unpack("!H", packet[2:4])[0] & 0x840F) == 0x8400 and
+                struct.unpack("!H", packet[6:8])[0] > 0)
     except OSError:
         return False
 
