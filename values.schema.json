@@ -72,6 +72,8 @@
       "type": "object",
       "properties": {
         "hostNetwork": { "type": "boolean" },
+        "kubernetesApiFallbackUrls": {"type": "array", "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^https://[^/]+:[0-9]+$"}},
         "dnsPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "httpPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "containerSecurityContext": { "type": "object" }

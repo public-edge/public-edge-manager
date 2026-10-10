@@ -55,6 +55,8 @@ runtime:
 
 workload:
   hostNetwork: true
+  # TLS-verified API endpoints used when the in-cluster Service VIP is unreachable.
+  kubernetesApiFallbackUrls: []
   dnsPort: 53
   httpPort: 8080
   priorityClassName: ""
