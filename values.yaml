@@ -44,6 +44,8 @@ discovery:
   serviceClasses: [api, web, registry, db-ro, db-rw]
   parentZone: ""
   childZones: []
+  # Delegated apexes whose public A answers must be usable on every NS.
+  addressZones: []
   # External secondary authorities retained alongside elected primary NS.
   secondaryNameserversByZone: {}
   cloudflareSecretRef: {}

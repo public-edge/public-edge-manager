@@ -107,6 +107,15 @@ class ControllerTests(unittest.TestCase):
             self.assertFalse(controller.dns_transport_ready("8.8.8.8", "api.example.com", True))
             self.assertEqual(query.call_count, 3)
 
+    def test_dns_authority_requires_service_address_answers(self):
+        with mock.patch.object(controller, "PARENT_ZONE", "example.com"), \
+             mock.patch.object(controller, "CHILD_ZONES", ["api.example.com"]), \
+             mock.patch.object(controller, "ADDRESS_ZONES", ["api.example.com"]), \
+             mock.patch.object(controller, "dns_transport_ready", return_value=True) as query:
+            self.assertIsNotNone(controller.dns_authority_candidate(node(), "8.8.8.8", "uid-1", 1000))
+            self.assertEqual({call.args[3] for call in query.call_args_list}, {1, 6})
+            self.assertEqual(query.call_count, 4)
+
     def test_dns_dependency_admission_requires_both_planes_and_fresh_success(self):
         now = time.time()
         item = assessment()
