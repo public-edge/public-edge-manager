@@ -122,6 +122,19 @@ def dns_host_eligible(node, public_ip, uid, capacity_ready):
     return bool(public_ip and uid and capacity_ready and node_ready(node))
 
 
+def dns_authority_candidate(node, public_ip, uid, node_capacity, inventory=None):
+    """Qualify public DNS independently of ingress and fabric path evidence."""
+    if not (PARENT_ZONE and CHILD_ZONES and
+            dns_host_eligible(node, public_ip, uid, node_capacity >= MINIMUM_CAPACITY)):
+        return None
+    if not all(dns_query(public_ip, zone, tcp)
+               for zone in CHILD_ZONES for tcp in (False, True)):
+        return None
+    _, region = locality(node, inventory)
+    return {"uid": uid, "ip": public_ip, "ns": nameserver_name(uid),
+            "region": region, "capacity": node_capacity}
+
+
 def assessment_by_node(payload):
     result = {}
     for item in payload.get("items", []):
@@ -447,20 +460,17 @@ def reconcile():
         # the next cycle its public listeners qualify the derived PublicEdge.
         listeners = {"http": tcp_probe(public_ip, 80), "https": tcp_probe(public_ip, 443)} if gateway_ready else {}
         ingress_ready = gateway_ready and all(listeners.values())
-        dns_ready = False
-        if ingress_ready and PARENT_ZONE:
-            dns_ready = all(dns_query(public_ip, zone, tcp) for zone in CHILD_ZONES for tcp in (False, True))
+        authority = dns_authority_candidate(node, public_ip, uid, node_capacity, inventory)
         patch_node_labels(node, gateway_ready,
                           dns_host_eligible(node, public_ip, uid, capacity_ready))
+        if authority:
+            authorities.append(authority)
         if not ingress_ready:
             continue
         desired = desired_edge(node, public_ip, gateway, gateway_ip, assessments[name], listeners,
                                node_capacity, inventory)
         desired_names.add(desired["metadata"]["name"])
         reconcile_object(desired, existing)
-        if dns_ready:
-            authorities.append({"uid": uid, "ip": public_ip, "ns": nameserver_name(uid),
-                                "region": desired["spec"]["region"], "capacity": desired["spec"]["capacityMbps"]})
     for name in set(existing) - desired_names:
         api(f"/apis/{API_GROUP}/{API_VERSION}/publicedges/{name}", "DELETE")
     ordered = sorted(authorities, key=lambda item: (-item["capacity"], item["uid"]))
