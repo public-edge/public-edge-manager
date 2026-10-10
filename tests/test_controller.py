@@ -75,6 +75,8 @@ class ControllerTests(unittest.TestCase):
         not_ready = node()
         not_ready["status"]["conditions"][0]["status"] = "False"
         self.assertFalse(controller.dns_host_eligible(not_ready, "8.8.8.8", "uid-1", True))
+        with mock.patch.object(controller, "EXCLUDED_NODE_NAMES", {"edge"}):
+            self.assertFalse(controller.dns_host_eligible(node(), "8.8.8.8", "uid-1", True))
         self.assertTrue(controller.assessment_ready(assessment()))
         self.assertFalse(controller.assessment_ready(assessment(state="Stale")))
         stale = assessment()

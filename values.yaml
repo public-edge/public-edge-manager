@@ -31,6 +31,8 @@ discovery:
   defaultCapacityMbps: 1
   # Nodes below this measured/configured uplink are never public exits or DNS authorities.
   minimumCapacityMbps: 100
+  # Retired nodes must never be admitted by transient successful probes.
+  excludedNodeNames: []
   # Optional shared facts for known nodes. Unlisted Nodes may qualify through
   # observed-capacity-mbps/capacity-mbps annotations and live path evidence.
   clusterInventoryConfigMap: {}

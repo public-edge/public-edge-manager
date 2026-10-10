@@ -30,6 +30,7 @@ INTERVAL = max(5, int(os.getenv("DISCOVERY_INTERVAL_SECONDS", "15")))
 PROBE_TIMEOUT = max(0.2, float(os.getenv("DISCOVERY_PROBE_TIMEOUT_SECONDS", "2")))
 DEFAULT_CAPACITY = max(1, int(os.getenv("DEFAULT_CAPACITY_MBPS", "100")))
 MINIMUM_CAPACITY = max(1, int(os.getenv("MINIMUM_CAPACITY_MBPS", "100")))
+EXCLUDED_NODE_NAMES = set(json.loads(os.getenv("EXCLUDED_NODE_NAMES_JSON", "[]")))
 CLUSTER_INVENTORY_NAMESPACE = os.getenv("CLUSTER_INVENTORY_NAMESPACE", "")
 CLUSTER_INVENTORY_CONFIGMAP = os.getenv("CLUSTER_INVENTORY_CONFIGMAP", "")
 CLUSTER_INVENTORY_KEY = os.getenv("CLUSTER_INVENTORY_KEY", "nodes.json")
@@ -119,7 +120,8 @@ def dns_host_eligible(node, public_ip, uid, capacity_ready):
     # Authoritative DNS must survive a transient Gateway listener failure.
     # Its DaemonSet uses this label for scheduling, so tying the label to a
     # probe of the same public delivery path can remove every DNS endpoint.
-    return bool(public_ip and uid and capacity_ready and node_ready(node))
+    return bool(node.get("metadata", {}).get("name") not in EXCLUDED_NODE_NAMES and
+                public_ip and uid and capacity_ready and node_ready(node))
 
 
 def dns_authority_candidate(node, public_ip, uid, node_capacity, inventory=None):
@@ -454,7 +456,8 @@ def reconcile():
         public_ip = global_external_ip(node)
         node_capacity = capacity(node, inventory)
         capacity_ready = node_capacity >= MINIMUM_CAPACITY
-        path_ready = bool(public_ip and uid and capacity_ready and assessment_ready(assessments.get(name)))
+        path_ready = bool(name not in EXCLUDED_NODE_NAMES and public_ip and uid and
+                          capacity_ready and assessment_ready(assessments.get(name)))
         gateway_ready = path_ready and tcp_probe(gateway_ip, 443)
         # The generic redirector is scheduled from bootstrap eligibility.  On
         # the next cycle its public listeners qualify the derived PublicEdge.
