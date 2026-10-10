@@ -44,6 +44,7 @@
           }
         },
         "maxNameservers": {"type": "integer", "minimum": 1, "maximum": 3},
+        "excludedNodeNames": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "gatewayNamespace": {"type": "string"},
         "gatewaySelector": {"type": "string", "minLength": 3},
         "authorityLabel": {"type": "string", "minLength": 3},

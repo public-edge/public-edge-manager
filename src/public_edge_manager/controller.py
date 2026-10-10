@@ -30,6 +30,7 @@ INTERVAL = max(5, int(os.getenv("DISCOVERY_INTERVAL_SECONDS", "15")))
 PROBE_TIMEOUT = max(0.2, float(os.getenv("DISCOVERY_PROBE_TIMEOUT_SECONDS", "2")))
 DEFAULT_CAPACITY = max(1, int(os.getenv("DEFAULT_CAPACITY_MBPS", "100")))
 MINIMUM_CAPACITY = max(1, int(os.getenv("MINIMUM_CAPACITY_MBPS", "100")))
+EXCLUDED_NODE_NAMES = set(json.loads(os.getenv("EXCLUDED_NODE_NAMES_JSON", "[]")))
 CLUSTER_INVENTORY_NAMESPACE = os.getenv("CLUSTER_INVENTORY_NAMESPACE", "")
 CLUSTER_INVENTORY_CONFIGMAP = os.getenv("CLUSTER_INVENTORY_CONFIGMAP", "")
 CLUSTER_INVENTORY_KEY = os.getenv("CLUSTER_INVENTORY_KEY", "nodes.json")
@@ -119,7 +120,21 @@ def dns_host_eligible(node, public_ip, uid, capacity_ready):
     # Authoritative DNS must survive a transient Gateway listener failure.
     # Its DaemonSet uses this label for scheduling, so tying the label to a
     # probe of the same public delivery path can remove every DNS endpoint.
-    return bool(public_ip and uid and capacity_ready and node_ready(node))
+    return bool(node.get("metadata", {}).get("name") not in EXCLUDED_NODE_NAMES and
+                public_ip and uid and capacity_ready and node_ready(node))
+
+
+def dns_authority_candidate(node, public_ip, uid, node_capacity, inventory=None):
+    """Qualify public DNS independently of ingress and fabric path evidence."""
+    if not (PARENT_ZONE and CHILD_ZONES and
+            dns_host_eligible(node, public_ip, uid, node_capacity >= MINIMUM_CAPACITY)):
+        return None
+    if not all(dns_query(public_ip, zone, tcp)
+               for zone in CHILD_ZONES for tcp in (False, True)):
+        return None
+    _, region = locality(node, inventory)
+    return {"uid": uid, "ip": public_ip, "ns": nameserver_name(uid),
+            "region": region, "capacity": node_capacity}
 
 
 def assessment_by_node(payload):
@@ -441,26 +456,24 @@ def reconcile():
         public_ip = global_external_ip(node)
         node_capacity = capacity(node, inventory)
         capacity_ready = node_capacity >= MINIMUM_CAPACITY
-        path_ready = bool(public_ip and uid and capacity_ready and assessment_ready(assessments.get(name)))
+        path_ready = bool(name not in EXCLUDED_NODE_NAMES and public_ip and uid and
+                          capacity_ready and assessment_ready(assessments.get(name)))
         gateway_ready = path_ready and tcp_probe(gateway_ip, 443)
         # The generic redirector is scheduled from bootstrap eligibility.  On
         # the next cycle its public listeners qualify the derived PublicEdge.
         listeners = {"http": tcp_probe(public_ip, 80), "https": tcp_probe(public_ip, 443)} if gateway_ready else {}
         ingress_ready = gateway_ready and all(listeners.values())
-        dns_ready = False
-        if ingress_ready and PARENT_ZONE:
-            dns_ready = all(dns_query(public_ip, zone, tcp) for zone in CHILD_ZONES for tcp in (False, True))
+        authority = dns_authority_candidate(node, public_ip, uid, node_capacity, inventory)
         patch_node_labels(node, gateway_ready,
                           dns_host_eligible(node, public_ip, uid, capacity_ready))
+        if authority:
+            authorities.append(authority)
         if not ingress_ready:
             continue
         desired = desired_edge(node, public_ip, gateway, gateway_ip, assessments[name], listeners,
                                node_capacity, inventory)
         desired_names.add(desired["metadata"]["name"])
         reconcile_object(desired, existing)
-        if dns_ready:
-            authorities.append({"uid": uid, "ip": public_ip, "ns": nameserver_name(uid),
-                                "region": desired["spec"]["region"], "capacity": desired["spec"]["capacityMbps"]})
     for name in set(existing) - desired_names:
         api(f"/apis/{API_GROUP}/{API_VERSION}/publicedges/{name}", "DELETE")
     ordered = sorted(authorities, key=lambda item: (-item["capacity"], item["uid"]))

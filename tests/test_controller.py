@@ -75,11 +75,29 @@ class ControllerTests(unittest.TestCase):
         not_ready = node()
         not_ready["status"]["conditions"][0]["status"] = "False"
         self.assertFalse(controller.dns_host_eligible(not_ready, "8.8.8.8", "uid-1", True))
+        with mock.patch.object(controller, "EXCLUDED_NODE_NAMES", {"edge"}):
+            self.assertFalse(controller.dns_host_eligible(node(), "8.8.8.8", "uid-1", True))
         self.assertTrue(controller.assessment_ready(assessment()))
         self.assertFalse(controller.assessment_ready(assessment(state="Stale")))
         stale = assessment()
         stale["status"]["validUntil"] = "2000-01-01T00:00:00Z"
         self.assertFalse(controller.assessment_ready(stale, time.time()))
+
+    def test_dns_authority_survives_stale_ingress_path_but_requires_public_dns(self):
+        candidate = node(name="overseas-la")
+        with mock.patch.object(controller, "PARENT_ZONE", "example.com"), \
+             mock.patch.object(controller, "CHILD_ZONES", ["api.example.com", "service.example.com"]), \
+             mock.patch.object(controller, "dns_query", return_value=True) as query:
+            selected = controller.dns_authority_candidate(candidate, "8.8.8.8", "uid-1", 1000)
+            self.assertEqual(selected["ip"], "8.8.8.8")
+            self.assertEqual(query.call_count, 4)
+            query.reset_mock()
+            query.side_effect = [True, True, False]
+            self.assertIsNone(controller.dns_authority_candidate(candidate, "8.8.8.8", "uid-1", 1000))
+            candidate["status"]["conditions"][0]["status"] = "False"
+            query.reset_mock()
+            self.assertIsNone(controller.dns_authority_candidate(candidate, "8.8.8.8", "uid-1", 1000))
+            query.assert_not_called()
 
     def test_dns_dependency_admission_requires_both_planes_and_fresh_success(self):
         now = time.time()
