@@ -42,6 +42,7 @@ spec:
             - {name: NAMESERVERS_FILE, value: /etc/public-edge-nameservers/nameservers.json}
             {{- end }}
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+            - {name: KUBERNETES_API_FALLBACK_URLS_JSON, value: {{ .Values.workload.kubernetesApiFallbackUrls | toJson | quote }}}
             - {name: HTTP_PORT, value: {{ .Values.workload.httpPort | quote }}}
             - {name: DNS_PORT, value: {{ .Values.workload.dnsPort | quote }}}
             - {name: PROBE_CONNECT_TIMEOUT_SECONDS, value: {{ .Values.probe.connectTimeoutSeconds | quote }}}

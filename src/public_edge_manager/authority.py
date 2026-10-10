@@ -44,6 +44,7 @@ CLIENT_AREA_CIDRS = json.loads(os.getenv("CLIENT_AREA_CIDRS_JSON", "{}"))
 LOCK = threading.Lock()
 HEALTH = {service: {} for service in SERVICES.values()}
 KUBERNETES_API = os.getenv("KUBERNETES_SERVICE_HOST", "")
+KUBERNETES_API_FALLBACK_URLS = json.loads(os.getenv("KUBERNETES_API_FALLBACK_URLS_JSON", "[]"))
 API_GROUP = os.getenv("API_GROUP", "networking.re8ch.com")
 SERVICE_ACCOUNT = "/var/run/secrets/kubernetes.io/serviceaccount"
 PUBLICATION_REFS = json.loads(os.getenv("PUBLICATION_REFS_JSON", "{}"))
@@ -210,28 +211,42 @@ def kubernetes_get(path):
         with open(f"{SERVICE_ACCOUNT}/token", encoding="utf-8") as stream:
             token = stream.read().strip()
         context = ssl.create_default_context(cafile=f"{SERVICE_ACCOUNT}/ca.crt")
-        request = urllib.request.Request(
-            f"https://{KUBERNETES_API}:{os.getenv('KUBERNETES_SERVICE_PORT_HTTPS', '443')}{path}",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        with urllib.request.urlopen(request, context=context, timeout=3) as response:
-            return json.load(response)
     except Exception as exc:
         print(f"kubernetes_get path={path} error={exc}", flush=True)
         return None
+    urls = [f"https://{KUBERNETES_API}:{os.getenv('KUBERNETES_SERVICE_PORT_HTTPS', '443')}"]
+    urls.extend(KUBERNETES_API_FALLBACK_URLS)
+    for base_url in urls:
+        try:
+            request = urllib.request.Request(
+                f"{base_url.rstrip('/')}{path}",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            with urllib.request.urlopen(request, context=context, timeout=3) as response:
+                return json.load(response)
+        except Exception as exc:
+            print(f"kubernetes_get path={path} endpoint={base_url} error={exc}", flush=True)
+    return None
 
 
 def kubernetes_patch(path, payload):
     with open(f"{SERVICE_ACCOUNT}/token", encoding="utf-8") as stream:
         token = stream.read().strip()
     context = ssl.create_default_context(cafile=f"{SERVICE_ACCOUNT}/ca.crt")
-    request = urllib.request.Request(
-        f"https://{KUBERNETES_API}:{os.getenv('KUBERNETES_SERVICE_PORT_HTTPS', '443')}{path}",
-        data=json.dumps(payload).encode(), method="PATCH",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/merge-patch+json"},
-    )
-    with urllib.request.urlopen(request, context=context, timeout=5) as response:
-        return json.load(response)
+    urls = [f"https://{KUBERNETES_API}:{os.getenv('KUBERNETES_SERVICE_PORT_HTTPS', '443')}"]
+    urls.extend(KUBERNETES_API_FALLBACK_URLS)
+    for index, base_url in enumerate(urls):
+        request = urllib.request.Request(
+            f"{base_url.rstrip('/')}{path}",
+            data=json.dumps(payload).encode(), method="PATCH",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/merge-patch+json"},
+        )
+        try:
+            with urllib.request.urlopen(request, context=context, timeout=5) as response:
+                return json.load(response)
+        except Exception:
+            if index + 1 == len(urls):
+                raise
 
 
 def readiness_gate_ready(service):

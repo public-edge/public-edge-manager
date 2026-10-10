@@ -16,6 +16,25 @@ os.environ.setdefault("CANDIDATES_JSON", "[]")
 
 
 class AuthorityTests(unittest.TestCase):
+    def test_kubernetes_api_fallback_uses_service_account_tls(self):
+        seen = []
+        def open_url(request, context, timeout):
+            seen.append((request.full_url, context, timeout))
+            if len(seen) == 1:
+                raise TimeoutError("service VIP unavailable")
+            return io.BytesIO(b'{"items":[{"metadata":{"name":"edge"}}]}')
+
+        with mock.patch.object(authority, "KUBERNETES_API", "10.43.0.1"), \
+             mock.patch.object(authority, "KUBERNETES_API_FALLBACK_URLS", ["https://203.0.113.128:6443"]), \
+             mock.patch("builtins.open", mock.mock_open(read_data="token")), \
+             mock.patch.object(authority.ssl, "create_default_context", return_value=object()), \
+             mock.patch.object(authority.urllib.request, "urlopen", side_effect=open_url):
+            result = authority.kubernetes_get("/apis/networking.re8ch.com/v1alpha1/publicedges")
+        self.assertEqual(result["items"][0]["metadata"]["name"], "edge")
+        self.assertEqual([entry[0].split("/apis/")[0] for entry in seen],
+                         ["https://10.43.0.1:443", "https://203.0.113.128:6443"])
+        self.assertIs(seen[0][1], seen[1][1])
+
     def setUp(self):
         authority.RECORDS_FILE = ""
         authority.RECORDS_DIGEST = ""
