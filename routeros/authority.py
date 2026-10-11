@@ -171,7 +171,7 @@ def answer_wire(wire, client_ip, tcp=False):
         try:
             response = (dns.query.tcp if tcp else dns.query.udp)(forwarded, upstream, timeout=TIMEOUT)
             if (response.flags & dns.flags.AA and not response.flags & dns.flags.RA and
-                    response.rcode() != dns.rcode.REFUSED):
+                    response.rcode() in (dns.rcode.NOERROR, dns.rcode.NXDOMAIN)):
                 response.id = query.id
                 return response.to_wire()
         except (OSError, dns.exception.DNSException):

@@ -72,6 +72,16 @@ class RouterOSAuthorityTests(unittest.TestCase):
         self.assertEqual(response.rcode(), dns.rcode.REFUSED)
         relay.assert_not_called()
 
+    def test_upstream_servfail_uses_fresh_local_copy(self):
+        query = dns.message.make_query("api.example.com.", dns.rdatatype.A)
+        failed = dns.message.make_response(query)
+        failed.flags |= dns.flags.AA
+        failed.set_rcode(dns.rcode.SERVFAIL)
+        with mock.patch.object(router.dns.query, "udp", return_value=failed):
+            response = dns.message.from_wire(router.answer_wire(query.to_wire(), "8.8.8.8"))
+        self.assertEqual(response.rcode(), dns.rcode.NOERROR)
+        self.assertEqual(response.answer[0][0].address, "203.0.113.9")
+
     def test_public_edge_axfr_populates_persistent_fallback(self):
         origin = router.ZONES[0]
         zone_name = origin.to_text()
