@@ -16,6 +16,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Install RouterOS test dependency
+        run: python -m pip install dnspython==2.7.0
       - name: Unit tests
         run: |
           python -m compileall -q src tests
@@ -44,3 +46,9 @@ jobs:
           test "$before" = "$record_only"
       - name: Build container
         run: docker build --build-arg VERSION=ci .
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build RouterOS ARM32 authority
+        run: |
+          docker buildx build --platform linux/arm/v7 -f routeros/Dockerfile routeros --load -t routeros-authority:ci
+          test "$(docker image inspect routeros-authority:ci --format '{{.Architecture}}')" = arm
