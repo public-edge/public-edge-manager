@@ -32,6 +32,7 @@ PROBE_TIMEOUT = max(0.2, float(os.getenv("DISCOVERY_PROBE_TIMEOUT_SECONDS", "2")
 DEFAULT_CAPACITY = max(1, int(os.getenv("DEFAULT_CAPACITY_MBPS", "100")))
 MINIMUM_CAPACITY = max(1, int(os.getenv("MINIMUM_CAPACITY_MBPS", "100")))
 EXCLUDED_NODE_NAMES = set(json.loads(os.getenv("EXCLUDED_NODE_NAMES_JSON", "[]")))
+EXCLUDED_AUTHORITY_NODE_NAMES = set(json.loads(os.getenv("EXCLUDED_AUTHORITY_NODE_NAMES_JSON", "[]")))
 CLUSTER_INVENTORY_NAMESPACE = os.getenv("CLUSTER_INVENTORY_NAMESPACE", "")
 CLUSTER_INVENTORY_CONFIGMAP = os.getenv("CLUSTER_INVENTORY_CONFIGMAP", "")
 CLUSTER_INVENTORY_KEY = os.getenv("CLUSTER_INVENTORY_KEY", "nodes.json")
@@ -119,12 +120,12 @@ def node_ready(node):
                for item in node.get("status", {}).get("conditions", []))
 
 
-def dns_host_eligible(node, public_ip, uid, capacity_ready):
+def dns_host_eligible(node, public_ip, uid):
     # Authoritative DNS must survive a transient Gateway listener failure.
     # Its DaemonSet uses this label for scheduling, so tying the label to a
     # probe of the same public delivery path can remove every DNS endpoint.
-    return bool(node.get("metadata", {}).get("name") not in EXCLUDED_NODE_NAMES and
-                public_ip and uid and capacity_ready and node_ready(node))
+    return bool(node.get("metadata", {}).get("name") not in EXCLUDED_AUTHORITY_NODE_NAMES and
+                public_ip and uid and node_ready(node))
 
 
 def dns_transport_ready(public_ip, zone, tcp, record_type=6):
@@ -142,7 +143,7 @@ def dns_transport_ready(public_ip, zone, tcp, record_type=6):
 def dns_authority_candidate(node, public_ip, uid, node_capacity, inventory=None):
     """Qualify public DNS independently of ingress and fabric path evidence."""
     if not (PARENT_ZONE and CHILD_ZONES and
-            dns_host_eligible(node, public_ip, uid, node_capacity >= MINIMUM_CAPACITY)):
+            dns_host_eligible(node, public_ip, uid)):
         return None
     transports = [(public_ip, zone, tcp, 6) for zone in CHILD_ZONES for tcp in (False, True)]
     transports += [(public_ip, zone, tcp, 1) for zone in ADDRESS_ZONES for tcp in (False, True)]
@@ -174,7 +175,7 @@ def external_authority_candidate(authority):
         if not all(executor.map(lambda args: dns_transport_ready(*args), transports)):
             return None
     return {"uid": f"external:{authority['id']}", "ip": str(address), "ns": nameserver,
-            "region": authority["region"], "capacity": authority["capacityMbps"]}
+            "region": authority["region"], "capacity": authority.get("capacityMbps", 0)}
 
 
 def assessment_by_node(payload):
@@ -507,7 +508,7 @@ def reconcile():
         ingress_ready = gateway_ready and all(listeners.values())
         authority = dns_authority_candidate(node, public_ip, uid, node_capacity, inventory)
         patch_node_labels(node, gateway_ready,
-                          dns_host_eligible(node, public_ip, uid, capacity_ready))
+                          dns_host_eligible(node, public_ip, uid))
         if authority:
             authorities.append(authority)
         if not ingress_ready:
@@ -527,7 +528,9 @@ def reconcile():
         raise RuntimeError("duplicate public DNS nameserver among authorities")
     for name in set(existing) - desired_names:
         api(f"/apis/{API_GROUP}/{API_VERSION}/publicedges/{name}", "DELETE")
-    ordered = sorted(authorities, key=lambda item: (-item["capacity"], item["uid"]))
+    # DNS authority is a low-bandwidth role. Keep election stable and spread
+    # regions without borrowing Public Edge ingress capacity rankings.
+    ordered = sorted(authorities, key=lambda item: item["uid"])
     selected = []
     for candidate in ordered:
         if candidate["region"] not in {item["region"] for item in selected}:

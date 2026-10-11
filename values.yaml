@@ -29,10 +29,11 @@ discovery:
   probeTimeoutSeconds: 2
   # Unknown uplink capacity is not enough to qualify as a public edge.
   defaultCapacityMbps: 1
-  # Nodes below this measured/configured uplink are never public exits or DNS authorities.
+  # Nodes below this measured/configured uplink are never public exits.
   minimumCapacityMbps: 100
-  # Retired nodes must never be admitted by transient successful probes.
+  # Public Edge ingress and DNS Authority exclusions are separate roles.
   excludedNodeNames: []
+  excludedAuthorityNodeNames: []
   # Optional shared facts for known nodes. Unlisted Nodes may qualify through
   # observed-capacity-mbps/capacity-mbps annotations and live path evidence.
   clusterInventoryConfigMap: {}

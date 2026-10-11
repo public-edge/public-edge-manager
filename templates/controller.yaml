@@ -46,6 +46,7 @@ spec:
             - {name: DEFAULT_CAPACITY_MBPS, value: {{ .Values.discovery.defaultCapacityMbps | quote }}}
             - {name: MINIMUM_CAPACITY_MBPS, value: {{ .Values.discovery.minimumCapacityMbps | quote }}}
             - {name: EXCLUDED_NODE_NAMES_JSON, value: {{ .Values.discovery.excludedNodeNames | toJson | quote }}}
+            - {name: EXCLUDED_AUTHORITY_NODE_NAMES_JSON, value: {{ .Values.discovery.excludedAuthorityNodeNames | toJson | quote }}}
             {{- with .Values.discovery.clusterInventoryConfigMap }}
             - {name: CLUSTER_INVENTORY_NAMESPACE, value: {{ .namespace | quote }}}
             - {name: CLUSTER_INVENTORY_CONFIGMAP, value: {{ .name | quote }}}

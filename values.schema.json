@@ -55,6 +55,7 @@
         },
         "maxNameservers": {"type": "integer", "minimum": 1, "maximum": 3},
         "excludedNodeNames": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "excludedAuthorityNodeNames": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "gatewayNamespace": {"type": "string"},
         "gatewaySelector": {"type": "string", "minLength": 3},
         "authorityLabel": {"type": "string", "minLength": 3},
@@ -72,7 +73,7 @@
           "type": "array", "uniqueItems": true,
           "items": {
             "type": "object", "additionalProperties": false,
-            "required": ["id", "address", "nameserver", "region", "capacityMbps", "enabled"],
+            "required": ["id", "address", "nameserver", "region", "enabled"],
             "properties": {
               "id": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
               "address": {"type": "string", "minLength": 7},

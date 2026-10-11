@@ -69,14 +69,13 @@ class ControllerTests(unittest.TestCase):
     def test_candidate_requires_global_external_ip_and_fresh_path(self):
         self.assertEqual(controller.global_external_ip(node()), "8.8.8.8")
         self.assertEqual(controller.global_external_ip(node(address="10.0.0.1")), "")
-        self.assertTrue(controller.dns_host_eligible(node(), "8.8.8.8", "uid-1", True))
-        self.assertFalse(controller.dns_host_eligible(node(), "", "uid-1", True))
-        self.assertFalse(controller.dns_host_eligible(node(), "8.8.8.8", "uid-1", False))
+        self.assertTrue(controller.dns_host_eligible(node(), "8.8.8.8", "uid-1"))
+        self.assertFalse(controller.dns_host_eligible(node(), "", "uid-1"))
         not_ready = node()
         not_ready["status"]["conditions"][0]["status"] = "False"
-        self.assertFalse(controller.dns_host_eligible(not_ready, "8.8.8.8", "uid-1", True))
-        with mock.patch.object(controller, "EXCLUDED_NODE_NAMES", {"edge"}):
-            self.assertFalse(controller.dns_host_eligible(node(), "8.8.8.8", "uid-1", True))
+        self.assertFalse(controller.dns_host_eligible(not_ready, "8.8.8.8", "uid-1"))
+        with mock.patch.object(controller, "EXCLUDED_AUTHORITY_NODE_NAMES", {"edge"}):
+            self.assertFalse(controller.dns_host_eligible(node(), "8.8.8.8", "uid-1"))
         self.assertTrue(controller.assessment_ready(assessment()))
         self.assertFalse(controller.assessment_ready(assessment(state="Stale")))
         stale = assessment()
@@ -90,6 +89,9 @@ class ControllerTests(unittest.TestCase):
              mock.patch.object(controller, "dns_transport_ready", return_value=True) as query:
             selected = controller.dns_authority_candidate(candidate, "8.8.8.8", "uid-1", 1000)
             self.assertEqual(selected["ip"], "8.8.8.8")
+            self.assertEqual(query.call_count, 4)
+            query.reset_mock()
+            self.assertIsNotNone(controller.dns_authority_candidate(candidate, "8.8.8.8", "uid-1", 1))
             self.assertEqual(query.call_count, 4)
             query.reset_mock()
             query.return_value = False
