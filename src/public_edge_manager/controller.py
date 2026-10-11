@@ -434,14 +434,26 @@ def reconcile_cloudflare(selected):
     desired = {item["ns"].rstrip(".") for item in selected}
     for child in CHILD_ZONES:
         child_desired = desired | SECONDARY_NAMESERVERS_BY_ZONE.get(child, set())
+        # Cloudflare allows at most eight NS records on one delegation. When
+        # replacing a full set, retire a stale member before adding its peer.
+        if len(child_desired) > 8:
+            raise RuntimeError(f"too many nameservers requested for {child}")
         current = [record for record in records(child) if record["type"] == "NS"]
         existing = {record["content"].rstrip(".") for record in current}
-        for ns in child_desired - existing:
+        stale = [record for record in current if record["content"].rstrip(".") not in child_desired]
+        count = len(current)
+        for ns in sorted(child_desired - existing):
+            if count >= 8:
+                if not stale:
+                    raise RuntimeError(f"cannot replace full nameserver delegation for {child}")
+                record = stale.pop(0)
+                cloudflare("DELETE", f"{prefix}/{record['id']}")
+                count -= 1
             cloudflare("POST", prefix, {"type": "NS", "name": child, "content": ns, "ttl": 300,
                                          "comment": "PublicEdge dynamic delegation"})
-        for record in current:
-            if record["content"].rstrip(".") not in child_desired:
-                cloudflare("DELETE", f"{prefix}/{record['id']}")
+            count += 1
+        for record in stale:
+            cloudflare("DELETE", f"{prefix}/{record['id']}")
 
 
 def acquire_lease():

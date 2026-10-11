@@ -30,6 +30,43 @@ def assessment(name="edge", state="Ready", reachable=True):
 
 
 class ControllerTests(unittest.TestCase):
+    def test_cloudflare_replaces_full_eight_ns_delegation(self):
+        child = "service.re8ch.com"
+        current = [{"id": str(index), "type": "NS", "content": name}
+                   for index, name in enumerate(
+                       ["old1.re8ch.com", "old2.re8ch.com", "old3.re8ch.com"] +
+                       [f"ns{index}.he.net" for index in range(1, 6)])]
+        changes = []
+
+        def cloudflare(method, path, payload=None):
+            if path.startswith("/zones?"):
+                return [{"id": "zone"}]
+            if method == "GET":
+                return list(current) if f"name={child}" in path else []
+            if method == "DELETE":
+                current[:] = [record for record in current if not path.endswith("/" + record["id"])]
+            elif payload["type"] == "NS":
+                if len(current) >= 8:
+                    raise AssertionError("Cloudflare delegation limit exceeded")
+                current.append({"id": f"new-{len(changes)}", "type": "NS", "content": payload["content"]})
+            changes.append(method)
+            return {}
+
+        selected = [{"ns": f"new{index}.re8ch.com.", "ip": f"203.0.113.{index}"}
+                    for index in range(1, 6)]
+        with mock.patch.object(controller, "CF_TOKEN", "test-token"), \
+             mock.patch.object(controller, "PARENT_ZONE", "re8ch.com"), \
+             mock.patch.object(controller, "CHILD_ZONES", [child]), \
+             mock.patch.object(controller, "SECONDARY_NAMESERVERS_BY_ZONE", {
+                 child: {"ns1.he.net", "ns2.he.net", "ns3.he.net"}}), \
+             mock.patch.object(controller, "cloudflare", side_effect=cloudflare):
+            controller.reconcile_cloudflare(selected)
+        self.assertEqual({record["content"] for record in current},
+                         {f"new{index}.re8ch.com" for index in range(1, 6)} |
+                         {f"ns{index}.he.net" for index in range(1, 4)})
+        self.assertEqual(len(current), 8)
+        self.assertIn("DELETE", changes)
+
     def test_cloudflare_keeps_declared_secondary_ns_for_one_child_zone(self):
         records = {
             "service.re8ch.com": [{"id": "old", "type": "NS", "content": "stale.re8ch.com"}],
