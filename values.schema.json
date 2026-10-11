@@ -58,6 +58,21 @@
           "additionalProperties": {"type": "array", "uniqueItems": true,
             "items": {"type": "string", "minLength": 2}}
         },
+        "externalAuthorities": {
+          "type": "array", "uniqueItems": true,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["id", "address", "nameserver", "region", "capacityMbps", "enabled"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
+              "address": {"type": "string", "minLength": 7},
+              "nameserver": {"type": "string", "pattern": "\\.$"},
+              "region": {"type": "string", "minLength": 1},
+              "capacityMbps": {"type": "integer", "minimum": 1},
+              "enabled": {"type": "boolean"}
+            }
+          }
+        },
         "cloudflareSecretRef": {
           "type": "object",
           "properties": {

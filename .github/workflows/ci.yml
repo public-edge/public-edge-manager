@@ -44,3 +44,9 @@ jobs:
           test "$before" = "$record_only"
       - name: Build container
         run: docker build --build-arg VERSION=ci .
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build RouterOS ARM32 authority
+        run: |
+          docker buildx build --platform linux/arm/v7 -f routeros/Dockerfile routeros --load -t routeros-authority:ci
+          test "$(docker image inspect routeros-authority:ci --format '{{.Architecture}}')" = arm

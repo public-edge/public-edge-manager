@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -45,6 +46,19 @@ jobs:
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
         run: cosign sign --yes "ghcr.io/${GITHUB_REPOSITORY}@${DIGEST}"
+      - name: Publish RouterOS ARM32 authority
+        uses: docker/build-push-action@v6
+        id: routeros-image
+        with:
+          context: ./routeros
+          platforms: linux/arm/v7
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/routeros-authority:${{ github.ref_name }}
+          provenance: false
+      - name: Sign RouterOS authority image
+        env:
+          DIGEST: ${{ steps.routeros-image.outputs.digest }}
+        run: cosign sign --yes "ghcr.io/${GITHUB_REPOSITORY_OWNER}/routeros-authority@${DIGEST}"
       - uses: azure/setup-helm@v4
       - name: Validate release version
         run: test "v$(helm show chart . | awk '/^version:/ {print $2}')" = "${GITHUB_REF_NAME}"

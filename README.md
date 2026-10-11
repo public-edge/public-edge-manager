@@ -176,6 +176,31 @@ The chart creates two Services:
 - `public-edge-manager` is always `ClusterIP` and carries the health/discovery
   HTTP API on port 8080.
 
+### Authorities outside Kubernetes
+
+`discovery.externalAuthorities` can register an independently operated public
+authority, including a RouterOS container or PowerDNS host. Each entry supplies
+`id`, global IPv4 `address`, absolute `nameserver` under `parentZone`, `region`,
+`capacityMbps`, and `enabled`. The default is an empty list. An enabled entry
+joins the existing nameserver election only after independent UDP and TCP SOA
+probes pass for every delegated child zone and A probes pass for every
+`addressZones` apex. The response must be authoritative and must not advertise
+recursion. These entries are never treated as Kubernetes Nodes or PublicEdge
+ingress candidates; no Node labels, routing state, or Gateway ownership are
+created for them. Keep an external authority disabled until its zone data and
+public transport are ready, and remove it from election before retiring its
+listener.
+
+The optional `routeros/` image is an ARM32 authority front end for the
+RouterOS container package. It preserves client ECS (or adds a privacy-limited
+subnet for a public source) when relaying to existing authorities. A local AXFR
+copy supplies global-view authoritative answers during an upstream outage.
+The copy cannot reproduce live locality selection, so fallback is deliberately
+limited to the configured stale window. `routeros/authority.example.json` is
+an example, not a production credential or automatic enrollment. Only publish
+its public address after every configured zone has a current local copy and
+both public transports pass the controller's probes.
+
 Ingress mutation is disabled by default. Enable `publication.enabled` and
 `rbac.mutateIngresses` together only for provider publication. Normal delegated
 authoritative DNS requires read-only Ingress access.

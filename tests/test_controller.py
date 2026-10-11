@@ -107,6 +107,27 @@ class ControllerTests(unittest.TestCase):
             self.assertFalse(controller.dns_transport_ready("8.8.8.8", "api.example.com", True))
             self.assertEqual(query.call_count, 3)
 
+    def test_external_authority_requires_public_authoritative_udp_and_tcp(self):
+        external = {"id": "routeros-r640", "address": "8.8.8.8",
+                    "nameserver": "ns-routeros.example.com.", "region": "cn", "capacityMbps": 1000,
+                    "enabled": True}
+        with mock.patch.object(controller, "PARENT_ZONE", "example.com"), \
+             mock.patch.object(controller, "CHILD_ZONES", ["api.example.com"]), \
+             mock.patch.object(controller, "ADDRESS_ZONES", ["api.example.com"]), \
+             mock.patch.object(controller, "dns_transport_ready", return_value=True) as query:
+            candidate = controller.external_authority_candidate(external)
+            self.assertEqual(candidate["uid"], "external:routeros-r640")
+            self.assertEqual(query.call_count, 4)
+            query.return_value = False
+            self.assertIsNone(controller.external_authority_candidate(external))
+            query.reset_mock()
+            external["enabled"] = False
+            self.assertIsNone(controller.external_authority_candidate(external))
+            query.assert_not_called()
+            external["enabled"] = True
+            external["address"] = "192.168.88.1"
+            with self.assertRaises(ValueError):
+                controller.external_authority_candidate(external)
     def test_dns_authority_requires_service_address_answers(self):
         with mock.patch.object(controller, "PARENT_ZONE", "example.com"), \
              mock.patch.object(controller, "CHILD_ZONES", ["api.example.com"]), \

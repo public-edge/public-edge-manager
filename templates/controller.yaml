@@ -61,6 +61,7 @@ spec:
             - {name: CHILD_ZONES_JSON, value: {{ .Values.discovery.childZones | toJson | quote }}}
             - {name: ADDRESS_ZONES_JSON, value: {{ .Values.discovery.addressZones | toJson | quote }}}
             - {name: SECONDARY_NAMESERVERS_BY_ZONE_JSON, value: {{ .Values.discovery.secondaryNameserversByZone | toJson | quote }}}
+            - {name: EXTERNAL_AUTHORITIES_JSON, value: {{ .Values.discovery.externalAuthorities | toJson | quote }}}
             - {name: NAMESERVER_CONFIGMAP, value: {{ .Values.dns.nameserversConfigMap | quote }}}
             {{- with .Values.discovery.cloudflareSecretRef }}
             - {name: CF_SECRET_NAMESPACE, value: {{ .namespace | quote }}}

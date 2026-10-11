@@ -54,6 +54,7 @@ SECONDARY_NAMESERVERS_BY_ZONE = {
     zone.rstrip(".").lower(): {name.rstrip(".").lower() for name in names}
     for zone, names in json.loads(os.getenv("SECONDARY_NAMESERVERS_BY_ZONE_JSON", "{}")).items()
 }
+EXTERNAL_AUTHORITIES = json.loads(os.getenv("EXTERNAL_AUTHORITIES_JSON", "[]"))
 CF_TOKEN = os.getenv("CF_API_TOKEN", "")
 CF_SECRET_NAMESPACE = os.getenv("CF_SECRET_NAMESPACE", "")
 CF_SECRET_NAME = os.getenv("CF_SECRET_NAME", "")
@@ -157,6 +158,25 @@ def dns_authority_candidate(node, public_ip, uid, node_capacity, inventory=None)
             "region": region, "capacity": node_capacity}
 
 
+def external_authority_candidate(authority):
+    """Admit a non-Kubernetes authority through the same public DNS probes."""
+    if not authority.get("enabled", False) or not PARENT_ZONE or not CHILD_ZONES:
+        return None
+    address = ipaddress.ip_address(authority["address"])
+    nameserver = authority["nameserver"].lower()
+    if address.version != 4 or not address.is_global:
+        raise ValueError("external authority address must be a global IPv4 address")
+    if not nameserver.endswith(f".{PARENT_ZONE}."):
+        raise ValueError("external authority nameserver must be under the parent zone")
+    transports = [(str(address), zone, tcp, 6) for zone in CHILD_ZONES for tcp in (False, True)]
+    transports += [(str(address), zone, tcp, 1) for zone in ADDRESS_ZONES for tcp in (False, True)]
+    with ThreadPoolExecutor(max_workers=min(12, len(transports))) as executor:
+        if not all(executor.map(lambda args: dns_transport_ready(*args), transports)):
+            return None
+    return {"uid": f"external:{authority['id']}", "ip": str(address), "ns": nameserver,
+            "region": authority["region"], "capacity": authority["capacityMbps"]}
+
+
 def assessment_by_node(payload):
     result = {}
     for item in payload.get("items", []):
@@ -252,7 +272,7 @@ def dns_query(ip, zone, tcp=False, record_type=6):
                 sock.sendto(query, (ip, 53))
                 packet, _ = sock.recvfrom(4096)
         return (len(packet) >= 12 and packet[:2] == ident and
-                (struct.unpack("!H", packet[2:4])[0] & 0x840F) == 0x8400 and
+                (struct.unpack("!H", packet[2:4])[0] & 0x848F) == 0x8400 and
                 struct.unpack("!H", packet[6:8])[0] > 0)
     except OSError:
         return False
@@ -496,6 +516,15 @@ def reconcile():
                                node_capacity, inventory)
         desired_names.add(desired["metadata"]["name"])
         reconcile_object(desired, existing)
+    for authority in EXTERNAL_AUTHORITIES:
+        candidate = external_authority_candidate(authority)
+        if candidate:
+            # A router front end can share the former Kubernetes node's public
+            # IP. Once it qualifies, that IP must have just one NS identity.
+            authorities = [item for item in authorities if item["ip"] != candidate["ip"]]
+            authorities.append(candidate)
+    if len({item["ns"] for item in authorities}) != len(authorities):
+        raise RuntimeError("duplicate public DNS nameserver among authorities")
     for name in set(existing) - desired_names:
         api(f"/apis/{API_GROUP}/{API_VERSION}/publicedges/{name}", "DELETE")
     ordered = sorted(authorities, key=lambda item: (-item["capacity"], item["uid"]))
