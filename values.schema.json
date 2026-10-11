@@ -66,6 +66,7 @@
         "parentZone": {"type": "string"},
         "childZones": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
         "addressZones": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "requiredAddressNames": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
         "secondaryNameserversByZone": {
           "type": "object",
           "additionalProperties": {"type": "array", "uniqueItems": true,
