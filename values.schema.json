@@ -54,6 +54,8 @@
           }
         },
         "maxNameservers": {"type": "integer", "minimum": 1, "maximum": 5},
+        "dnsPolicy": {"type": "string", "enum": ["ClusterFirst", "Default", "None"]},
+        "dnsNameservers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "format": "ipv4"}},
         "excludedNodeNames": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "excludedAuthorityNodeNames": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "gatewayNamespace": {"type": "string"},
