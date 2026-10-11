@@ -89,6 +89,13 @@ class AuthorityTests(unittest.TestCase):
             self.assertEqual(authority.NAMESERVERS, ["ns1.example.com.", "ns2.example.com."])
             stream.seek(0)
             stream.truncate()
+            elected = [f"ns{i}.example.com." for i in range(1, 6)]
+            json.dump({"nameservers": elected}, stream)
+            stream.flush()
+            self.assertTrue(authority.reload_nameservers())
+            self.assertEqual(authority.NAMESERVERS, elected)
+            stream.seek(0)
+            stream.truncate()
             json.dump({"nameservers": ["ns1.example.com."]}, stream)
             stream.flush()
             self.assertTrue(authority.reload_nameservers())
