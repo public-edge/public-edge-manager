@@ -51,6 +51,7 @@ MAX_NAMESERVERS = max(1, min(5, int(os.getenv("MAX_NAMESERVERS", "3"))))
 PARENT_ZONE = os.getenv("PARENT_ZONE", "").rstrip(".").lower()
 CHILD_ZONES = [value.rstrip(".").lower() for value in json.loads(os.getenv("CHILD_ZONES_JSON", "[]"))]
 ADDRESS_ZONES = [value.rstrip(".").lower() for value in json.loads(os.getenv("ADDRESS_ZONES_JSON", "[]"))]
+REQUIRED_ADDRESS_NAMES = [value.rstrip(".").lower() for value in json.loads(os.getenv("REQUIRED_ADDRESS_NAMES_JSON", "[]"))]
 SECONDARY_NAMESERVERS_BY_ZONE = {
     zone.rstrip(".").lower(): {name.rstrip(".").lower() for name in names}
     for zone, names in json.loads(os.getenv("SECONDARY_NAMESERVERS_BY_ZONE_JSON", "{}")).items()
@@ -147,6 +148,7 @@ def dns_authority_candidate(node, public_ip, uid, node_capacity, inventory=None)
         return None
     transports = [(public_ip, zone, tcp, 6) for zone in CHILD_ZONES for tcp in (False, True)]
     transports += [(public_ip, zone, tcp, 1) for zone in ADDRESS_ZONES for tcp in (False, True)]
+    transports += [(public_ip, name, tcp, 1) for name in REQUIRED_ADDRESS_NAMES for tcp in (False, True)]
     # Run independent zone/transport checks together so the 2s timeout does
     # not multiply by the number of delegated zones during a partial outage.
     with ThreadPoolExecutor(max_workers=min(12, len(transports))) as executor:
@@ -171,6 +173,7 @@ def external_authority_candidate(authority):
         raise ValueError("external authority nameserver must be under the parent zone")
     transports = [(str(address), zone, tcp, 6) for zone in CHILD_ZONES for tcp in (False, True)]
     transports += [(str(address), zone, tcp, 1) for zone in ADDRESS_ZONES for tcp in (False, True)]
+    transports += [(str(address), name, tcp, 1) for name in REQUIRED_ADDRESS_NAMES for tcp in (False, True)]
     with ThreadPoolExecutor(max_workers=min(12, len(transports))) as executor:
         if not all(executor.map(lambda args: dns_transport_ready(*args), transports)):
             return None

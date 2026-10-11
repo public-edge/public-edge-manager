@@ -85,6 +85,7 @@ FABRIC_EVIDENCE_ALLOWED_STATES = set(json.loads(os.getenv("FABRIC_EVIDENCE_ALLOW
 FABRIC_REQUIRE_NODE_READY = os.getenv("FABRIC_REQUIRE_NODE_READY", "true").lower() == "true"
 FABRIC_ASSESSMENTS = {}
 FABRIC_API_AVAILABLE = False
+FABRIC_API_OUTAGE = False
 FABRIC_NODE_READINESS = {}
 FABRIC_NODE_API_AVAILABLE = False
 FABRIC_BUNDLE_FILE = os.getenv("FABRIC_BUNDLE_FILE", "")
@@ -343,8 +344,11 @@ def refresh_candidates():
         reload_candidates_file()
         return
     discovered = candidates_from_public_edges()
-    # An empty list (or an API failure) must never retain a previously selected
-    # public endpoint. Keep static candidates only in the explicit non-K8s mode.
+    # A control-plane read failure cannot erase a previously verified candidate
+    # set. The independent service probes continue to gate DNS answers.
+    if discovered is None:
+        return
+    # An explicit empty inventory still withdraws all candidates.
     with LOCK:
         CANDIDATES[:] = discovered or []
         active = {item["id"] for item in CANDIDATES}
@@ -390,7 +394,7 @@ def reload_candidates_file():
 
 def refresh_fabric_assessments():
     """Cache provider-neutral network evidence once per probe cycle."""
-    global FABRIC_API_AVAILABLE, FABRIC_NODE_API_AVAILABLE
+    global FABRIC_API_AVAILABLE, FABRIC_NODE_API_AVAILABLE, FABRIC_API_OUTAGE
     if FABRIC_BUNDLE_FILE:
         try:
             with open(FABRIC_BUNDLE_FILE, encoding="utf-8") as stream:
@@ -406,6 +410,7 @@ def refresh_fabric_assessments():
                 FABRIC_NODE_READINESS.update(node_readiness)
                 FABRIC_API_AVAILABLE = True
                 FABRIC_NODE_API_AVAILABLE = True
+                FABRIC_API_OUTAGE = False
         except (OSError, ValueError, KeyError, TypeError) as exc:
             print(f"fabric publication reload failed: {exc}", flush=True)
             with LOCK:
@@ -413,6 +418,7 @@ def refresh_fabric_assessments():
                 FABRIC_NODE_READINESS.clear()
                 FABRIC_API_AVAILABLE = False
                 FABRIC_NODE_API_AVAILABLE = False
+                FABRIC_API_OUTAGE = False
         return
     if FABRIC_EVIDENCE_MODE == "Disabled":
         with LOCK:
@@ -420,10 +426,16 @@ def refresh_fabric_assessments():
             FABRIC_API_AVAILABLE = False
             FABRIC_NODE_READINESS.clear()
             FABRIC_NODE_API_AVAILABLE = False
+            FABRIC_API_OUTAGE = False
         return
     payload = kubernetes_get(
         f"/apis/{FABRIC_EVIDENCE_API_GROUP}/{FABRIC_EVIDENCE_API_VERSION}/{FABRIC_EVIDENCE_RESOURCE}"
     )
+    if payload is None:
+        with LOCK:
+            FABRIC_API_AVAILABLE = False
+            FABRIC_API_OUTAGE = True
+        return
     available = payload is not None
     assessments = {}
     for item in (payload or {}).get("items", []):
@@ -449,6 +461,7 @@ def refresh_fabric_assessments():
         FABRIC_ASSESSMENTS.clear()
         FABRIC_ASSESSMENTS.update(assessments)
         FABRIC_API_AVAILABLE = available
+        FABRIC_API_OUTAGE = False
         FABRIC_NODE_READINESS.clear()
         FABRIC_NODE_READINESS.update(node_readiness)
         FABRIC_NODE_API_AVAILABLE = node_available
@@ -473,6 +486,12 @@ def fabric_evidence(candidate, now=None):
         node_name = candidate.get("nodeName", "")
         node_ready = FABRIC_NODE_READINESS.get(node_name)
         item = FABRIC_ASSESSMENTS.get(node_name)
+    if FABRIC_API_OUTAGE and not available and item is not None:
+        # A verified candidate keeps serving through a control-plane outage.
+        # ranked() still requires a fresh, successful public service probe.
+        return {"eligible": True, "mode": FABRIC_EVIDENCE_MODE,
+                "state": "ProviderUnavailable", "reason": "ProviderUnavailable",
+                "degraded": True, "pathEvidence": {}}
     if FABRIC_REQUIRE_NODE_READY and (not node_api_available or node_ready is not True):
         reason = "NodeNotReady" if node_api_available and node_ready is False else "NodeReadinessUnavailable"
         eligible = FABRIC_EVIDENCE_MODE in ("Shadow", "Optional") and not node_api_available

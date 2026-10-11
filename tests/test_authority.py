@@ -50,6 +50,7 @@ class AuthorityTests(unittest.TestCase):
         authority.CANDIDATES[:] = []
         authority.FABRIC_ASSESSMENTS.clear()
         authority.FABRIC_API_AVAILABLE = False
+        authority.FABRIC_API_OUTAGE = False
         authority.FABRIC_NODE_READINESS.clear()
         authority.FABRIC_NODE_API_AVAILABLE = False
         authority.FABRIC_EVIDENCE_MODE = "Disabled"
@@ -392,12 +393,23 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(authority.CANDIDATES, [])
         self.assertEqual(authority.HEALTH["app"], {})
 
-    def test_inventory_failure_fails_closed(self):
+    def test_inventory_failure_preserves_verified_candidates_for_public_probes(self):
         authority.CANDIDATES[:] = [{"id": "us-edge-50"}]
         with mock.patch.object(authority, "KUBERNETES_API", "kubernetes"), \
              mock.patch.object(authority, "kubernetes_get", return_value=None):
             authority.refresh_candidates()
-        self.assertEqual(authority.CANDIDATES, [])
+        self.assertEqual(authority.CANDIDATES, [{"id": "us-edge-50"}])
+
+    def test_required_fabric_keeps_verified_candidate_during_api_outage(self):
+        authority.FABRIC_ASSESSMENTS["edge-node"] = self.assessment()
+        authority.FABRIC_API_AVAILABLE = True
+        with mock.patch.object(authority, "FABRIC_EVIDENCE_MODE", "Required"), \
+             mock.patch.object(authority, "kubernetes_get", return_value=None):
+            authority.refresh_fabric_assessments()
+            result = authority.fabric_evidence({"nodeName": "edge-node"})
+        self.assertFalse(authority.FABRIC_API_AVAILABLE)
+        self.assertTrue(result["eligible"])
+        self.assertTrue(result["degraded"])
 
     def test_stale_service_probe_cannot_be_ranked_ready(self):
         authority.CANDIDATES[:] = [{"id": "edge-a", "region": "test", "ip": "192.0.2.10",
