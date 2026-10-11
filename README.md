@@ -191,15 +191,16 @@ created for them. Keep an external authority disabled until its zone data and
 public transport are ready, and remove it from election before retiring its
 listener.
 
-The optional `routeros/` image is an ARM32 authority front end for the
-RouterOS container package. It preserves client ECS (or adds a privacy-limited
-subnet for a public source) when relaying to existing authorities. A local AXFR
-copy supplies global-view authoritative answers during an upstream outage.
-The copy cannot reproduce live locality selection, so fallback is deliberately
-limited to the configured stale window. `routeros/authority.example.json` is
-an example, not a production credential or automatic enrollment. Only publish
-its public address after every configured zone has a current local copy and
-both public transports pass the controller's probes.
+The optional `routeros/` ARM32 image runs the same authoritative DNS engine as
+the Kubernetes authorities in non-Kubernetes mode. A separate bundle publisher
+exports the shared records, runtime changes, nameserver election, public edge
+candidates, AdvFab path assessments, node readiness, and client-area policy.
+The RouterOS process verifies its HMAC,
+stores the last good bundle, probes candidates independently, and answers UDP
+and TCP DNS locally. Normal answers do not depend on another DNS authority or
+AXFR. Its health endpoint fails when no signed bundle has been refreshed within
+the configured age. `routeros/authority.example.json` documents the consumer;
+the HMAC key is provisioned separately and never stored in chart values.
 
 Ingress mutation is disabled by default. Enable `publication.enabled` and
 `rbac.mutateIngresses` together only for provider publication. Normal delegated

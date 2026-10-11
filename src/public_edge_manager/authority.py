@@ -36,6 +36,8 @@ EXTERNAL_RECORDS = {
     for name, records in json.loads(os.getenv("EXTERNAL_RECORDS_JSON", "{}")).items()
 }
 CANDIDATES = json.loads(os.getenv("CANDIDATES_JSON", "[]"))
+CANDIDATES_FILE = os.getenv("CANDIDATES_FILE", "")
+CANDIDATES_DIGEST = ""
 SERVICE_DEFINITIONS = json.loads(os.getenv("SERVICES_JSON", "{}"))
 SERVICES = {name: definition["service"] for name, definition in SERVICE_DEFINITIONS.items()}
 REGION = "unknown"
@@ -85,10 +87,22 @@ FABRIC_ASSESSMENTS = {}
 FABRIC_API_AVAILABLE = False
 FABRIC_NODE_READINESS = {}
 FABRIC_NODE_API_AVAILABLE = False
+FABRIC_BUNDLE_FILE = os.getenv("FABRIC_BUNDLE_FILE", "")
 RECORDS_FILE = os.getenv("RECORDS_FILE", "")
 RUNTIME_FILE = os.getenv("RUNTIME_FILE", "")
 RECORDS_DIGEST = ""
 RUNTIME_MODEL = {}
+BUNDLE_FRESHNESS_FILE = os.getenv("BUNDLE_FRESHNESS_FILE", "")
+BUNDLE_MAX_AGE_SECONDS = max(300, int(os.getenv("BUNDLE_MAX_AGE_SECONDS", "86400")))
+
+
+def bundle_is_fresh():
+    if not BUNDLE_FRESHNESS_FILE:
+        return True
+    try:
+        return time.time() - os.stat(BUNDLE_FRESHNESS_FILE).st_mtime <= BUNDLE_MAX_AGE_SECONDS
+    except OSError:
+        return False
 
 
 def reload_nameservers():
@@ -283,7 +297,7 @@ def readiness_gate_ready(service):
         return False
 
 
-def candidates_from_public_edges():
+def candidates_from_public_edges(service_definitions=None):
     payload = kubernetes_get(f"/apis/{API_GROUP}/v1alpha1/publicedges")
     if payload is None:
         return None
@@ -295,7 +309,8 @@ def candidates_from_public_edges():
             continue
         service_classes = set(spec.get("serviceClasses", []))
         probes = {}
-        for hostname, definition in SERVICE_DEFINITIONS.items():
+        for hostname, definition in (SERVICE_DEFINITIONS if service_definitions is None
+                                     else service_definitions).items():
             service = definition["service"]
             service_class = definition.get("class", "web")
             if service_class not in service_classes:
@@ -325,6 +340,7 @@ def candidates_from_public_edges():
 
 def refresh_candidates():
     if not KUBERNETES_API:
+        reload_candidates_file()
         return
     discovered = candidates_from_public_edges()
     # An empty list (or an API failure) must never retain a previously selected
@@ -338,9 +354,66 @@ def refresh_candidates():
                                if edge in active}
 
 
+def reload_candidates_file():
+    """Load a complete candidate set published to an external authority."""
+    global CANDIDATES_DIGEST
+    if not CANDIDATES_FILE:
+        return False
+    try:
+        with open(CANDIDATES_FILE, "rb") as stream:
+            raw = stream.read()
+        digest = hashlib.sha256(raw).hexdigest()
+        if digest == CANDIDATES_DIGEST:
+            return False
+        candidates = json.loads(raw)
+        if (not isinstance(candidates, list) or not candidates or
+                any(not isinstance(item, dict) or
+                    not all(key in item for key in ("id", "ip", "region", "area", "probes"))
+                    for item in candidates)):
+            raise ValueError("candidate publication must contain complete candidates")
+        if len({item["id"] for item in candidates}) != len(candidates):
+            raise ValueError("duplicate candidate id")
+        with LOCK:
+            CANDIDATES[:] = candidates
+            active = {item["id"] for item in candidates}
+            for service in SERVICES.values():
+                HEALTH.setdefault(service, {})
+                HEALTH[service] = {edge: result for edge, result in HEALTH[service].items()
+                                   if edge in active}
+            CANDIDATES_DIGEST = digest
+        print(f"candidates reloaded digest={digest[:12]} count={len(candidates)}", flush=True)
+        return True
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        print(f"candidates reload failed: {exc}", flush=True)
+        return False
+
+
 def refresh_fabric_assessments():
     """Cache provider-neutral network evidence once per probe cycle."""
     global FABRIC_API_AVAILABLE, FABRIC_NODE_API_AVAILABLE
+    if FABRIC_BUNDLE_FILE:
+        try:
+            with open(FABRIC_BUNDLE_FILE, encoding="utf-8") as stream:
+                bundle = json.load(stream)
+            assessments = bundle["assessments"]
+            node_readiness = bundle["nodeReadiness"]
+            if not isinstance(assessments, dict) or not isinstance(node_readiness, dict):
+                raise ValueError("invalid fabric publication")
+            with LOCK:
+                FABRIC_ASSESSMENTS.clear()
+                FABRIC_ASSESSMENTS.update(assessments)
+                FABRIC_NODE_READINESS.clear()
+                FABRIC_NODE_READINESS.update(node_readiness)
+                FABRIC_API_AVAILABLE = True
+                FABRIC_NODE_API_AVAILABLE = True
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"fabric publication reload failed: {exc}", flush=True)
+            with LOCK:
+                FABRIC_ASSESSMENTS.clear()
+                FABRIC_NODE_READINESS.clear()
+                FABRIC_API_AVAILABLE = False
+                FABRIC_NODE_API_AVAILABLE = False
+        return
     if FABRIC_EVIDENCE_MODE == "Disabled":
         with LOCK:
             FABRIC_ASSESSMENTS.clear()
@@ -1171,7 +1244,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path in ("/healthz", "/livez"):
-            ready = parsed.path == "/livez" or DNS_READY.is_set()
+            ready = parsed.path == "/livez" or (DNS_READY.is_set() and bundle_is_fresh())
             self.send_response(200 if ready else 503)
             self.end_headers()
             try:
@@ -1223,6 +1296,8 @@ def main():
         raise RuntimeError("unable to load record configuration")
     if NAMESERVERS_FILE and not reload_nameservers():
         raise RuntimeError("unable to load nameserver election")
+    if CANDIDATES_FILE and not reload_candidates_file():
+        raise RuntimeError("unable to load candidate publication")
     for name, records in EXTERNAL_RECORDS.items():
         zone = matching_authority_zone(name)
         if not zone or name == zone or name in SERVICES or not records:

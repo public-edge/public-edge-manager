@@ -17,11 +17,12 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install RouterOS test dependency
-        run: python -m pip install dnspython==2.7.0
+        run: python -m pip install pytest==8.4.2
       - name: Unit tests
         run: |
           python -m compileall -q src tests
           PYTHONPATH=src python -m unittest discover -s tests -v
+          PYTHONPATH=src python -m pytest -q tests/test_portable_bundle.py
       - name: Reject private deployment data
         run: |
           if grep -R -n -E '223\.159\.210\.222|10\.181\.22\.|registry\.re8ch\.com' --exclude-dir=.git .; then
@@ -50,5 +51,5 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - name: Build RouterOS ARM32 authority
         run: |
-          docker buildx build --platform linux/arm/v7 -f routeros/Dockerfile routeros --load -t routeros-authority:ci
+          docker buildx build --platform linux/arm/v7 -f routeros/Dockerfile . --load -t routeros-authority:ci
           test "$(docker image inspect routeros-authority:ci --format '{{.Architecture}}')" = arm

@@ -50,7 +50,8 @@ jobs:
         uses: docker/build-push-action@v6
         id: routeros-image
         with:
-          context: ./routeros
+          context: .
+          file: routeros/Dockerfile
           platforms: linux/arm/v7
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/routeros-authority:${{ github.ref_name }}

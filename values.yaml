@@ -129,6 +129,16 @@ publication:
   # Deprecated singleton retained for backwards compatibility.
   refs: {}
 
+# Private, signed publication feed for independent RouterOS authorities.
+# Bind only on a reviewed LAN node. The HMAC key Secret must be provisioned
+# separately and mounted read-only; no credential belongs in Helm values.
+bundlePublisher:
+  enabled: false
+  nodeName: ""
+  bindAddress: ""
+  port: 18553
+  hmacSecretName: ""
+
 rbac:
   mutateIngresses: false
 
