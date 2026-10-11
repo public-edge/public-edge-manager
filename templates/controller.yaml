@@ -11,6 +11,11 @@ spec:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
     spec:
+      dnsPolicy: {{ .Values.discovery.dnsPolicy }}
+      {{- with .Values.discovery.dnsNameservers }}
+      dnsConfig:
+        nameservers: {{ . | toYaml | nindent 10 }}
+      {{- end }}
       serviceAccountName: {{ include "public-edge-manager.name" . }}
       affinity:
         {{- with .Values.discovery.probeNodeNames }}
