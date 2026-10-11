@@ -1,20 +1,13 @@
 {
-  "publicAddress": "192.0.2.10",
   "listenAddress": "0.0.0.0",
   "listenPort": 53,
   "healthPort": 8080,
-  "upstreams": ["198.51.100.11", "203.0.113.12"],
-  "axfrPrimary": "198.51.100.11",
-  "zones": [
-    "api.example.com.",
-    "db-ro.example.com.",
-    "db-rw.example.com.",
-    "service.example.com.",
-    "functions.example.com.",
-    "test.example.com."
-  ],
-  "stateDirectory": "/state",
-  "refreshSeconds": 300,
-  "maxStaleSeconds": 86400,
-  "upstreamTimeoutSeconds": 2
+  "nodeName": "routeros-r640",
+  "bundleUrl": "https://bundle.example.com/v1/authority-bundle",
+  "bundleKeyFile": "/config/bundle.key",
+  "bundleDirectory": "/state",
+  "bundleCacheDirectory": "/data",
+  "bundleRefreshSeconds": 60,
+  "bundleMaxAgeSeconds": 86400,
+  "soaRname": "hostmaster.example.com."
 }

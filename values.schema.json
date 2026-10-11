@@ -23,6 +23,16 @@
     },
     "services": { "type": "object" },
     "readinessGates": { "type": "object" },
+    "bundlePublisher": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "nodeName": { "type": "string" },
+        "bindAddress": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1024, "maximum": 65535 },
+        "hmacSecretName": { "type": "string" }
+      }
+    },
     "discovery": {
       "type": "object",
       "required": ["enabled", "replicas", "intervalSeconds", "probeTimeoutSeconds", "gatewaySelector", "authorityLabel", "ingressLabel"],
