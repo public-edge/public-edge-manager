@@ -118,8 +118,8 @@ def reload_nameservers():
             return False
         payload = json.loads(raw)
         nameservers = payload["nameservers"]
-        if not isinstance(nameservers, list) or not 1 <= len(nameservers) <= 3:
-            raise ValueError("expected one to three nameservers")
+        if not isinstance(nameservers, list) or not 1 <= len(nameservers) <= 5:
+            raise ValueError("expected one to five nameservers")
         if len(set(nameservers)) != len(nameservers):
             raise ValueError("duplicate nameserver")
         for name in nameservers:
