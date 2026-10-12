@@ -13,7 +13,7 @@ def payload(version=2, serial=100):
         "schemaVersion": "v1", "gitRevision": "abc123", "policyVersion": version,
         "generatedAt": now.isoformat(), "expiresAt": (now + timedelta(minutes=5)).isoformat(),
         "zones": {"service.re8ch.com.": {"serial": serial}},
-        "regions": {"CN": [{"id": "r640", "ip": "223.159.210.222", "healthy": False}]},
+        "regions": {"CN": [{"id": "edge-cn", "ip": "192.0.2.10", "healthy": False}]},
     }
 
 
