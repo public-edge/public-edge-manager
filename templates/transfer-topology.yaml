@@ -25,7 +25,7 @@ spec:
             - {name: NODE_NAME, value: {{ .Values.transferTopology.primary.nodeName | quote }}}
             - {name: DNS_TRANSFER_ROLE, value: primary}
             - {name: DNS_PORT, value: {{ .Values.transferTopology.shadowDnsPort | quote }}}
-            - {name: HTTP_PORT, value: "18080"}
+            - {name: HTTP_PORT, value: {{ .Values.transferTopology.httpPort | quote }}}
             - {name: XOT_LISTEN_ADDRESS, value: "0.0.0.0:853"}
             - {name: ROUTE_SNAPSHOT_LISTEN_ADDRESS, value: "0.0.0.0:8443"}
             - {name: RECORDS_FILE, value: /etc/public-edge-records/records.json}
@@ -80,7 +80,7 @@ spec:
             - {name: NODE_NAME, value: {{ .nodeName | quote }}}
             - {name: DNS_TRANSFER_ROLE, value: secondary}
             - {name: DNS_PORT, value: {{ $root.Values.transferTopology.shadowDnsPort | quote }}}
-            - {name: HTTP_PORT, value: "18080"}
+            - {name: HTTP_PORT, value: {{ $root.Values.transferTopology.httpPort | quote }}}
             - {name: XOT_SERVER_NAME, value: {{ $root.Values.dns.transfer.xot.serverName | quote }}}
             - {name: ROUTE_SNAPSHOT_ENDPOINT, value: {{ $root.Values.routeSnapshot.endpoint | quote }}}
             - {name: RECORDS_FILE, value: /etc/public-edge-records/records.json}
