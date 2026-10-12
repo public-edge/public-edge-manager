@@ -815,7 +815,10 @@ def trusted_ecs_source(source_ip):
 def default_candidate(request_area):
     """Return the policy fallback even when all live candidates are unhealthy."""
     regions = ROUTING_POLICY.get("regions", {})
-    order = regions.get(request_area) or regions.get(ROUTING_POLICY.get("defaultRegion", "default"), [])
+    # Exhausting healthy candidates is a distinct failure mode: every region
+    # converges on the declared global safety entry rather than returning a
+    # different unhealthy regional address.
+    order = regions.get(ROUTING_POLICY.get("defaultRegion", "default"), [])
     identifiers = [item if isinstance(item, str) else item.get("id") for item in order]
     with LOCK:
         candidates = list(CANDIDATES)
