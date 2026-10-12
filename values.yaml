@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/public-edge/public-edge-manager
-  tag: "0.7.1"
+  tag: "0.7.2"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -122,6 +122,9 @@ routeSnapshot:
   maxStaleSeconds: 900
 
 transferTopology:
+  # Topology pods use hostNetwork and may colocate with the public authority
+  # DaemonSet. Keep their health/status listener on a distinct host port.
+  httpPort: 18081
   primary:
     enabled: false
     nodeName: ""

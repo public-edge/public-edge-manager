@@ -20,6 +20,7 @@ routeSnapshot:
 services:
   app.service.example.com.: {service: app, class: web, probePath: /}
 transferTopology:
+  httpPort: 18081
   primary:
     enabled: true
     nodeName: edge-eu

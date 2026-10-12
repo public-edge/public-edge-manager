@@ -254,9 +254,10 @@
     }
     ,"transferTopology": {
       "type": "object", "additionalProperties": false,
-      "required": ["primary", "secondaries", "shadowDnsPort"],
+      "required": ["primary", "secondaries", "shadowDnsPort", "httpPort"],
       "properties": {
         "shadowDnsPort": {"type": "integer", "minimum": 1024, "maximum": 65535},
+        "httpPort": {"type": "integer", "minimum": 1024, "maximum": 65535},
         "primary": {
           "type": "object", "additionalProperties": false,
           "required": ["enabled", "nodeName", "tlsSecretRef", "snapshotTlsSecretRef", "signingKeySecretRef"],

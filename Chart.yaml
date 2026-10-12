@@ -2,8 +2,8 @@ apiVersion: v2
 name: public-edge-manager
 description: Region- and capacity-aware PublicEdge health authority for Kubernetes.
 type: application
-version: 0.7.1
-appVersion: "0.7.1"
+version: 0.7.2
+appVersion: "0.7.2"
 keywords: [public-edge, dns, external-dns, gateway-api, cilium, geo-routing]
 maintainers:
   - name: RE8CH Platform
@@ -13,6 +13,8 @@ annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/category: networking
   artifacthub.io/changes: |
+    - kind: fixed
+      description: Isolate host-network transfer topology health listeners from the public authority DaemonSet.
     - kind: added
       description: Add mutually authenticated XFR-over-TLS and Ed25519 RouteSnapshot distribution with last-known-good rollback protection.
     - kind: changed
