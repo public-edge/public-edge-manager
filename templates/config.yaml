@@ -8,6 +8,17 @@ data:
   SOA_RNAME: {{ .Values.dns.soaRname | quote }}
   AXFR_ZONES_JSON: {{ .Values.dns.axfrZones | toJson | quote }}
   AXFR_ALLOWED_CIDRS_JSON: {{ .Values.dns.axfrAllowedCidrs | toJson | quote }}
+  DNS_TRANSFER_ROLE: {{ .Values.dns.transfer.role | quote }}
+  XOT_LISTEN_ADDRESS: {{ .Values.dns.transfer.xot.listenAddress | quote }}
+  XOT_SERVER_NAME: {{ .Values.dns.transfer.xot.serverName | quote }}
+  XOT_SECONDARIES_JSON: {{ .Values.dns.transfer.secondaries | toJson | quote }}
+  ROUTING_POLICY_JSON: {{ .Values.routingPolicy | toJson | quote }}
+  TRUSTED_ECS_PREFIXES_JSON: {{ .Values.routingPolicy.trustedEcsPrefixes | toJson | quote }}
+  ROUTE_SNAPSHOT_ENDPOINT: {{ .Values.routeSnapshot.endpoint | quote }}
+  ROUTE_SNAPSHOT_LISTEN_ADDRESS: "0.0.0.0:8443"
+  ROUTE_SNAPSHOT_STATE_PATH: {{ .Values.routeSnapshot.statePath | quote }}
+  ROUTE_SNAPSHOT_REFRESH_SECONDS: {{ .Values.routeSnapshot.refreshSeconds | quote }}
+  ROUTE_SNAPSHOT_MAX_STALE_SECONDS: {{ .Values.routeSnapshot.maxStaleSeconds | quote }}
   SECONDARY_NAMESERVERS_BY_ZONE_JSON: {{ .Values.discovery.secondaryNameserversByZone | toJson | quote }}
   PROBE_USER_AGENT: {{ .Values.probe.userAgent | quote }}
   PUBLICATION_ENABLED: {{ .Values.publication.enabled | quote }}

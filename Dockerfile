@@ -6,7 +6,9 @@ LABEL org.opencontainers.image.source="https://github.com/public-edge/public-edg
       org.opencontainers.image.version="${VERSION}"
 
 WORKDIR /app
-COPY src/public_edge_manager /app/public_edge_manager
+COPY pyproject.toml README.md /app/
+COPY src /app/src
+RUN pip install --no-cache-dir .
 USER 65532:65532
-EXPOSE 53/udp 53/tcp 8080/tcp
+EXPOSE 53/udp 53/tcp 853/tcp 8080/tcp
 ENTRYPOINT ["python3", "-m", "public_edge_manager"]

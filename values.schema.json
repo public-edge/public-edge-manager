@@ -118,6 +118,25 @@
           "items": {"type": "string", "minLength": 2}},
         "axfrAllowedCidrs": {"type": "array", "uniqueItems": true,
           "items": {"type": "string", "minLength": 3}},
+        "transfer": {
+          "type": "object", "additionalProperties": false,
+          "required": ["role", "xot", "secondaries"],
+          "properties": {
+            "role": {"enum": ["disabled", "primary", "secondary"]},
+            "xot": {
+              "type": "object", "additionalProperties": false,
+              "required": ["listenAddress", "serverName", "tlsSecretRef"],
+              "properties": {
+                "listenAddress": {"type": "string", "pattern": "^.+:[0-9]+$"},
+                "serverName": {"type": "string"},
+                "tlsSecretRef": {"type": "string"}
+              }
+            },
+            "secondaries": {"type": "array", "uniqueItems": true,
+              "items": {"type": "object", "additionalProperties": false, "required": ["id"],
+                "properties": {"id": {"type": "string", "minLength": 1}, "dnsName": {"type": "string"}}}}
+          }
+        },
         "zones": {
           "type": "array",
           "uniqueItems": true,
@@ -211,6 +230,26 @@
         "minReadySeconds": {"type": "integer", "minimum": 0},
         "minHoldSeconds": {"type": "integer", "minimum": 0},
         "resolverCidrs": {"type": "object"}
+      }
+    }
+    ,"routingPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["regions", "defaultRegion", "trustedEcsPrefixes"],
+      "properties": {
+        "regions": {"type": "object", "additionalProperties": {"type": "array"}},
+        "defaultRegion": {"type": "string", "minLength": 1},
+        "trustedEcsPrefixes": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      }
+    }
+    ,"routeSnapshot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["endpoint", "publicKeyRef", "signingKeySecretRef", "tlsSecretRef", "statePath", "refreshSeconds", "maxStaleSeconds"],
+      "properties": {
+        "endpoint": {"type": "string"}, "publicKeyRef": {"type": "string"},
+        "signingKeySecretRef": {"type": "string"}, "tlsSecretRef": {"type": "string"},
+        "statePath": {"type": "string", "minLength": 1},
+        "refreshSeconds": {"type": "integer", "minimum": 5},
+        "maxStaleSeconds": {"type": "integer", "minimum": 0}
       }
     }
     ,"fabricEvidence": {

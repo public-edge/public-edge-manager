@@ -15,6 +15,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from .route_snapshot import atomic_write_json, load_private_key, load_public_key, sign_snapshot, verify_snapshot
 
 NODE = os.getenv("NODE_NAME", "unknown")
 PROBE_CONNECT_TIMEOUT = float(os.getenv("PROBE_CONNECT_TIMEOUT_SECONDS", "5"))
@@ -56,6 +57,22 @@ READINESS_GATES = json.loads(os.getenv("READINESS_GATES_JSON", "{}"))
 SOA_RNAME = os.getenv("SOA_RNAME", "hostmaster.invalid.")
 AXFR_ZONES = {f"{zone.rstrip('.').lower()}." for zone in json.loads(os.getenv("AXFR_ZONES_JSON", "[]"))}
 AXFR_ALLOWED_CIDRS = [ipaddress.ip_network(value) for value in json.loads(os.getenv("AXFR_ALLOWED_CIDRS_JSON", "[]"))]
+DNS_TRANSFER_ROLE = os.getenv("DNS_TRANSFER_ROLE", "disabled").lower()
+XOT_LISTEN_ADDRESS = os.getenv("XOT_LISTEN_ADDRESS", "0.0.0.0:853")
+XOT_SERVER_NAME = os.getenv("XOT_SERVER_NAME", "")
+XOT_SECONDARIES = json.loads(os.getenv("XOT_SECONDARIES_JSON", "[]"))
+XOT_TLS_DIRECTORY = "/etc/public-edge-xot"
+ROUTING_POLICY = json.loads(os.getenv("ROUTING_POLICY_JSON", "{}"))
+TRUSTED_ECS_PREFIXES = [ipaddress.ip_network(value) for value in json.loads(os.getenv("TRUSTED_ECS_PREFIXES_JSON", "[]"))]
+ROUTE_SNAPSHOT_ENDPOINT = os.getenv("ROUTE_SNAPSHOT_ENDPOINT", "")
+ROUTE_SNAPSHOT_LISTEN_ADDRESS = os.getenv("ROUTE_SNAPSHOT_LISTEN_ADDRESS", "0.0.0.0:8443")
+ROUTE_SNAPSHOT_STATE_PATH = os.getenv("ROUTE_SNAPSHOT_STATE_PATH", "/var/lib/public-edge/route-snapshot.json")
+ROUTE_SNAPSHOT_REFRESH_SECONDS = max(5, int(os.getenv("ROUTE_SNAPSHOT_REFRESH_SECONDS", "15")))
+ROUTE_SNAPSHOT_MAX_STALE_SECONDS = max(0, int(os.getenv("ROUTE_SNAPSHOT_MAX_STALE_SECONDS", "900")))
+ROUTE_SNAPSHOT = {}
+ROUTE_SNAPSHOT_STATUS = {"revision": "", "lastSuccessfulSync": None, "error": "not configured"}
+XOT_ZONE_SERIALS = {}
+XOT_STATUS = {"lastSuccessfulSync": None, "error": "not configured"}
 SECONDARY_NAMESERVERS_BY_ZONE = {
     f"{zone.rstrip('.').lower()}.": [f"{name.rstrip('.').lower()}." for name in names]
     for zone, names in json.loads(os.getenv("SECONDARY_NAMESERVERS_BY_ZONE_JSON", "{}")).items()
@@ -787,6 +804,33 @@ def client_area(address):
     return max(matches, default=(0, "GLOBAL"))[1]
 
 
+def trusted_ecs_source(source_ip):
+    try:
+        address = ipaddress.ip_address(source_ip)
+        return any(address in network for network in TRUSTED_ECS_PREFIXES)
+    except ValueError:
+        return False
+
+
+def default_candidate(request_area):
+    """Return the policy fallback even when all live candidates are unhealthy."""
+    regions = ROUTING_POLICY.get("regions", {})
+    order = regions.get(request_area) or regions.get(ROUTING_POLICY.get("defaultRegion", "default"), [])
+    identifiers = [item if isinstance(item, str) else item.get("id") for item in order]
+    with LOCK:
+        candidates = list(CANDIDATES)
+    for identifier in identifiers:
+        candidate = next((item for item in candidates if item.get("id") == identifier), None)
+        if candidate:
+            return dict(candidate)
+    # A literal candidate in policy makes the safety answer independent of
+    # control-plane discovery. It is deliberately allowed to be unhealthy.
+    for item in order:
+        if isinstance(item, dict) and item.get("ip"):
+            return dict(item)
+    return None
+
+
 def ranked(service, request_area=None):
     gate_ready = readiness_gate_ready(service)
     with LOCK:
@@ -1065,7 +1109,61 @@ def zone_serial(zone, records=None):
         return ZONE_SERIALS[zone][1]
 
 
-def axfr_messages(query, source_ip):
+def soa_serial_from_response(message):
+    """Read the first SOA serial from an uncompressed owner/RDATA response."""
+    _, _, questions, answers, _, _ = struct.unpack("!HHHHHH", message[:12])
+    offset = 12
+    for _ in range(questions):
+        offset = skip_name(message, offset) + 4
+    for _ in range(answers):
+        offset = skip_name(message, offset)
+        rrtype, _, _, length = struct.unpack("!HHIH", message[offset:offset + 10])
+        offset += 10
+        end = offset + length
+        if rrtype == 6:
+            cursor = skip_name(message, offset)
+            cursor = skip_name(message, cursor)
+            return struct.unpack("!I", message[cursor:cursor + 4])[0]
+        offset = end
+    raise ValueError("transfer response did not contain SOA")
+
+
+def xot_query(zone, qtype=251):
+    ident = int(time.time_ns()) & 0xFFFF
+    query = struct.pack("!HHHHHH", ident, 0, 1, 0, 0, 0) + encode_name(zone) + struct.pack("!HH", qtype, 1)
+    host = ROUTE_SNAPSHOT_ENDPOINT.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+    port = int(XOT_LISTEN_ADDRESS.rsplit(":", 1)[1])
+    context = ssl.create_default_context(cafile=f"{XOT_TLS_DIRECTORY}/ca.crt")
+    context.minimum_version = ssl.TLSVersion.TLSv1_3
+    context.load_cert_chain(f"{XOT_TLS_DIRECTORY}/tls.crt", f"{XOT_TLS_DIRECTORY}/tls.key")
+    with socket.create_connection((host, port), timeout=PROBE_RESPONSE_TIMEOUT) as raw:
+        with context.wrap_socket(raw, server_hostname=XOT_SERVER_NAME) as connection:
+            connection.sendall(struct.pack("!H", len(query)) + query)
+            size = connection.recv(2)
+            if len(size) != 2:
+                raise ValueError("short XoT response")
+            expected = struct.unpack("!H", size)[0]
+            response = b""
+            while len(response) < expected:
+                response += connection.recv(expected - len(response))
+    return soa_serial_from_response(response)
+
+
+def xot_sync_loop():
+    global XOT_STATUS
+    while True:
+        try:
+            serials = {zone: xot_query(zone) for zone in sorted(AXFR_ZONES)}
+            with LOCK:
+                XOT_ZONE_SERIALS.update(serials)
+                XOT_STATUS = {"lastSuccessfulSync": time.time(), "error": ""}
+        except Exception as exc:
+            with LOCK:
+                XOT_STATUS["error"] = str(exc)
+        time.sleep(ROUTE_SNAPSHOT_REFRESH_SECONDS)
+
+
+def axfr_messages(query, source_ip, authenticated=False):
     """Return RFC 5936 DNS messages for one TCP AXFR, or a DNS error."""
     if len(query) < 12:
         return []
@@ -1077,11 +1175,11 @@ def axfr_messages(query, source_ip):
         qtype, qclass = struct.unpack("!HH", query[offset:offset + 4])
     except (ValueError, struct.error):
         return []
-    if qtype != 252:
+    if qtype not in (251, 252):
         return [dns_response(query, source_ip)]
     question = query[12:offset + 4]
     try:
-        allowed = any(ipaddress.ip_address(source_ip) in cidr for cidr in AXFR_ALLOWED_CIDRS)
+        allowed = authenticated or any(ipaddress.ip_address(source_ip) in cidr for cidr in AXFR_ALLOWED_CIDRS)
     except ValueError:
         allowed = False
     if qclass != 1 or name not in AXFR_ZONES or name not in AUTHORITY_ZONES or not allowed:
@@ -1131,6 +1229,8 @@ def refused_response(query):
 def service_address_records(name, service, request_area=None):
     selected = stable_selected(service, ranked(service, request_area), request_area)
     if not selected:
+        selected = default_candidate(request_area or ROUTING_POLICY.get("defaultRegion", "default"))
+    if not selected:
         return []
     records = []
     if selected.get("endpointType") == "HostnameTunnel":
@@ -1173,7 +1273,8 @@ def dns_response(query, source_ip=""):
         return b""
     qtype, _ = struct.unpack("!HH", query[offset:offset + 4])
     question = query[12:offset + 4]
-    request_area = client_area(ecs_address(query, offset + 4) or source_ip)
+    ecs = ecs_address(query, offset + 4) if trusted_ecs_source(source_ip) else ""
+    request_area = client_area(ecs or source_ip)
     answers = []
     authorities = []
     rcode = 0
@@ -1242,6 +1343,36 @@ class ReusableTCPServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
 
 
+class XoTServer(ReusableTCPServer):
+    def __init__(self, address, handler):
+        context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        context.minimum_version = ssl.TLSVersion.TLSv1_3
+        context.load_cert_chain(f"{XOT_TLS_DIRECTORY}/tls.crt", f"{XOT_TLS_DIRECTORY}/tls.key")
+        context.load_verify_locations(f"{XOT_TLS_DIRECTORY}/ca.crt")
+        context.verify_mode = ssl.CERT_REQUIRED
+        self.tls_context = context
+        super().__init__(address, handler)
+
+    def get_request(self):
+        connection, address = super().get_request()
+        try:
+            return self.tls_context.wrap_socket(connection, server_side=True), address
+        except Exception:
+            connection.close()
+            raise
+
+
+class MTLSHTTPServer(ThreadingHTTPServer):
+    def __init__(self, address, handler):
+        context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        context.minimum_version = ssl.TLSVersion.TLSv1_3
+        context.load_cert_chain("/etc/public-edge-snapshot-tls/tls.crt", "/etc/public-edge-snapshot-tls/tls.key")
+        context.load_verify_locations("/etc/public-edge-snapshot-tls/ca.crt")
+        context.verify_mode = ssl.CERT_REQUIRED
+        super().__init__(address, handler)
+        self.socket = context.wrap_socket(self.socket, server_side=True)
+
+
 class TCPHandler(socketserver.BaseRequestHandler):
     def handle(self):
         length_data = self.request.recv(2)
@@ -1259,6 +1390,80 @@ class TCPHandler(socketserver.BaseRequestHandler):
                 self.request.sendall(struct.pack("!H", len(response)) + response)
 
 
+class XoTHandler(TCPHandler):
+    def handle(self):
+        certificate = self.request.getpeercert()
+        identities = {
+            value for entry in certificate.get("subject", ()) for key, value in entry if key == "commonName"
+        }
+        identities.update(value for kind, value in certificate.get("subjectAltName", ()) if kind == "DNS")
+        allowed = {
+            item.get("id", "") for item in XOT_SECONDARIES
+        } | {item.get("dnsName", "") for item in XOT_SECONDARIES}
+        if not identities.intersection(allowed):
+            return
+        length_data = self.request.recv(2)
+        if len(length_data) != 2:
+            return
+        length = struct.unpack("!H", length_data)[0]
+        data = b""
+        while len(data) < length:
+            part = self.request.recv(length - len(data))
+            if not part:
+                return
+            data += part
+        for response in axfr_messages(data, self.client_address[0], authenticated=True):
+            self.request.sendall(struct.pack("!H", len(response)) + response)
+
+
+def snapshot_payload():
+    now = datetime.now(timezone.utc)
+    zones = {zone: {"serial": zone_serial(zone)} for zone in sorted(AXFR_ZONES)}
+    regional = {}
+    for area in ROUTING_POLICY.get("regions", {}):
+        ranked_candidates = ranked(next(iter(SERVICES.values())), area) if SERVICES else []
+        regional[area] = [{
+            "id": item["id"], "ip": item["ip"], "region": item.get("area", item.get("region")),
+            "healthy": item["state"] == "ready",
+        } for item in ranked_candidates]
+    return {
+        "schemaVersion": "v1",
+        "gitRevision": os.getenv("GIT_REVISION", "unknown"),
+        "policyVersion": int(os.getenv("ROUTING_POLICY_VERSION", "1")),
+        "generatedAt": now.isoformat().replace("+00:00", "Z"),
+        "expiresAt": datetime.fromtimestamp(now.timestamp() + ROUTE_SNAPSHOT_MAX_STALE_SECONDS, timezone.utc).isoformat().replace("+00:00", "Z"),
+        "zones": zones,
+        "regions": regional,
+    }
+
+
+def snapshot_sync_loop():
+    global ROUTE_SNAPSHOT, ROUTE_SNAPSHOT_STATUS
+    context = ssl.create_default_context(cafile="/etc/public-edge-snapshot-tls/ca.crt")
+    context.minimum_version = ssl.TLSVersion.TLSv1_3
+    context.load_cert_chain("/etc/public-edge-snapshot-tls/tls.crt", "/etc/public-edge-snapshot-tls/tls.key")
+    public_key = load_public_key("/etc/public-edge-snapshot-public/public-key.pem")
+    try:
+        with open(ROUTE_SNAPSHOT_STATE_PATH, encoding="utf-8") as stream:
+            ROUTE_SNAPSHOT = verify_snapshot(json.load(stream), public_key, max_stale_seconds=ROUTE_SNAPSHOT_MAX_STALE_SECONDS)
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    while True:
+        try:
+            request = urllib.request.Request(ROUTE_SNAPSHOT_ENDPOINT, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(request, context=context, timeout=PROBE_RESPONSE_TIMEOUT) as response:
+                candidate = json.load(response)
+            candidate = verify_snapshot(candidate, public_key, current=ROUTE_SNAPSHOT, max_stale_seconds=ROUTE_SNAPSHOT_MAX_STALE_SECONDS)
+            atomic_write_json(ROUTE_SNAPSHOT_STATE_PATH, candidate)
+            with LOCK:
+                ROUTE_SNAPSHOT = candidate
+                ROUTE_SNAPSHOT_STATUS = {"revision": candidate["gitRevision"], "lastSuccessfulSync": time.time(), "error": ""}
+        except Exception as exc:
+            with LOCK:
+                ROUTE_SNAPSHOT_STATUS["error"] = str(exc)
+        time.sleep(ROUTE_SNAPSHOT_REFRESH_SECONDS)
+
+
 class HTTPHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -1270,6 +1475,43 @@ class HTTPHandler(BaseHTTPRequestHandler):
                 self.wfile.write(b"ok\n" if ready else b"dns starting\n")
             except (BrokenPipeError, ConnectionResetError):
                 pass
+            return
+        if (parsed.path == "/v1/route-snapshot" and DNS_TRANSFER_ROLE == "primary"
+                and isinstance(self.server, MTLSHTTPServer)):
+            try:
+                payload = json.dumps(sign_snapshot(snapshot_payload(), load_private_key("/etc/public-edge-snapshot-signing/private-key.pem")), separators=(",", ":")).encode()
+            except Exception as exc:
+                self.send_error(503, str(exc))
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        if parsed.path == "/v1/status":
+            with LOCK:
+                sync = dict(ROUTE_SNAPSHOT_STATUS)
+                snapshot = dict(ROUTE_SNAPSHOT)
+                xot_sync = dict(XOT_STATUS)
+                transferred = dict(XOT_ZONE_SERIALS)
+            last = sync.get("lastSuccessfulSync")
+            payload = json.dumps({
+                "role": DNS_TRANSFER_ROLE,
+                "serials": {zone: zone_serial(zone) for zone in sorted(AXFR_ZONES)},
+                "snapshotRevision": snapshot.get("gitRevision", sync.get("revision", "")),
+                "lastSuccessfulSync": last,
+                "stalenessSeconds": None if last is None else max(0, int(time.time() - last)),
+                "regions": snapshot.get("regions", {}),
+                "syncError": sync.get("error", ""),
+                "xot": {"serials": transferred, **xot_sync},
+            }, separators=(",", ":")).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
             return
         if parsed.path != "/v1/discovery":
             self.send_error(404)
@@ -1354,6 +1596,16 @@ def main():
     tcp = ReusableTCPServer((dns_bind, DNS_PORT), TCPHandler)
     threading.Thread(target=udp.serve_forever, daemon=True).start()
     threading.Thread(target=tcp.serve_forever, daemon=True).start()
+    if DNS_TRANSFER_ROLE == "primary":
+        host, port = XOT_LISTEN_ADDRESS.rsplit(":", 1)
+        xot = XoTServer((host, int(port)), XoTHandler)
+        threading.Thread(target=xot.serve_forever, daemon=True).start()
+        snapshot_host, snapshot_port = ROUTE_SNAPSHOT_LISTEN_ADDRESS.rsplit(":", 1)
+        snapshot_server = MTLSHTTPServer((snapshot_host, int(snapshot_port)), HTTPHandler)
+        threading.Thread(target=snapshot_server.serve_forever, daemon=True).start()
+    elif DNS_TRANSFER_ROLE == "secondary" and ROUTE_SNAPSHOT_ENDPOINT:
+        threading.Thread(target=snapshot_sync_loop, daemon=True).start()
+        threading.Thread(target=xot_sync_loop, daemon=True).start()
     with open(DNS_READY_MARKER, "w", encoding="utf-8") as marker:
         marker.write("ready\n")
     DNS_READY.set()
