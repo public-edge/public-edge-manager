@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/public-edge/public-edge-manager
-  tag: "0.7.0"
+  tag: "0.7.1"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -120,6 +120,16 @@ routeSnapshot:
   statePath: /var/lib/public-edge/route-snapshot.json
   refreshSeconds: 15
   maxStaleSeconds: 900
+
+transferTopology:
+  primary:
+    enabled: false
+    nodeName: ""
+    tlsSecretRef: ""
+    snapshotTlsSecretRef: ""
+    signingKeySecretRef: ""
+  secondaries: []
+  shadowDnsPort: 5353
 
 candidateSelection:
   capacityWeight: 10

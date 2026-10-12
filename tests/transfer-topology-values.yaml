@@ -1,0 +1,31 @@
+enabled: true
+nameservers: [ns1.example.com.]
+dns:
+  nameserversConfigMap: public-edge-nameservers
+  zones: [service.example.com.]
+  axfrZones: [service.example.com.]
+  transfer:
+    role: disabled
+    xot: {listenAddress: "0.0.0.0:853", serverName: hidden-primary.example.com, tlsSecretRef: ""}
+    secondaries:
+      - {id: edge-us, dnsName: edge-us}
+routeSnapshot:
+  endpoint: https://192.0.2.10:8443/v1/route-snapshot
+  publicKeyRef: route-snapshot-public-key
+  signingKeySecretRef: ""
+  tlsSecretRef: ""
+  statePath: /var/lib/public-edge/route-snapshot.json
+  refreshSeconds: 15
+  maxStaleSeconds: 900
+services:
+  app.service.example.com.: {service: app, class: web, probePath: /}
+transferTopology:
+  primary:
+    enabled: true
+    nodeName: edge-eu
+    tlsSecretRef: hidden-primary-tls
+    snapshotTlsSecretRef: hidden-primary-tls
+    signingKeySecretRef: route-snapshot-signing
+  secondaries:
+    - {id: edge-us, enabled: true, nodeName: edge-us, tlsSecretRef: edge-us-tls}
+  shadowDnsPort: 5353
