@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/public-edge/public-edge-manager
-  tag: "0.7.2"
+  tag: "0.7.3"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -61,6 +61,9 @@ runtime:
 
 workload:
   hostNetwork: true
+  # Leave one rollout slot for a pod wedged on an unreachable/retired node,
+  # while still retaining at least one authority on a three-node deployment.
+  maxUnavailable: 2
   # TLS-verified API endpoints used when the in-cluster Service VIP is unreachable.
   kubernetesApiFallbackUrls: []
   dnsPort: 53

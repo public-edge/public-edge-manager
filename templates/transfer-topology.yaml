@@ -9,7 +9,10 @@ spec:
   strategy: {type: Recreate}
   selector: {matchLabels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}-hidden-primary}}
   template:
-    metadata: {labels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}-hidden-primary}}
+    metadata:
+      labels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}-hidden-primary}
+      annotations:
+        checksum/transfer-config: {{ dict "topology" .Values.transferTopology "routeSnapshot" .Values.routeSnapshot "transfer" .Values.dns.transfer | toJson | sha256sum }}
     spec:
       nodeName: {{ required "transferTopology.primary.nodeName is required" .Values.transferTopology.primary.nodeName }}
       hostNetwork: true
@@ -64,7 +67,10 @@ spec:
   strategy: {type: Recreate}
   selector: {matchLabels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" $root }}-secondary-{{ .id }} }}
   template:
-    metadata: {labels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" $root }}-secondary-{{ .id }} }}
+    metadata:
+      labels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" $root }}-secondary-{{ .id }} }
+      annotations:
+        checksum/transfer-config: {{ dict "topology" $root.Values.transferTopology "routeSnapshot" $root.Values.routeSnapshot "transfer" $root.Values.dns.transfer | toJson | sha256sum }}
     spec:
       nodeName: {{ required "secondary nodeName is required" .nodeName }}
       hostNetwork: true
