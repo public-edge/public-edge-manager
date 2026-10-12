@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/public-edge/public-edge-manager
-  tag: "0.6.37"
+  tag: "0.7.0"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -96,6 +96,30 @@ dns:
   zones: []
   # Static records delegated to a third-party CDN; never health-retargeted.
   externalRecords: {}
+  transfer:
+    role: disabled # disabled | primary | secondary
+    xot:
+      listenAddress: "0.0.0.0:853"
+      serverName: ""
+      tlsSecretRef: ""
+    # Each secondary has a stable id and an optional certificate DNS SAN.
+    secondaries: []
+
+routingPolicy:
+  defaultRegion: default
+  regions: {}
+  # ECS is honored only when the query arrived from one of these resolvers.
+  # Empty means ECS is not trusted; resolver source classification still applies.
+  trustedEcsPrefixes: []
+
+routeSnapshot:
+  endpoint: ""
+  publicKeyRef: ""
+  signingKeySecretRef: ""
+  tlsSecretRef: ""
+  statePath: /var/lib/public-edge/route-snapshot.json
+  refreshSeconds: 15
+  maxStaleSeconds: 900
 
 candidateSelection:
   capacityWeight: 10

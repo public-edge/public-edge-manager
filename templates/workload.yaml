@@ -52,6 +52,18 @@ spec:
           volumeMounts:
             - {name: records, mountPath: /etc/public-edge-records, readOnly: true}
             - {name: runtime, mountPath: /etc/public-edge-runtime, readOnly: true}
+            {{- if .Values.dns.transfer.xot.tlsSecretRef }}
+            - {name: xot-tls, mountPath: /etc/public-edge-xot, readOnly: true}
+            {{- end }}
+            {{- if .Values.routeSnapshot.publicKeyRef }}
+            - {name: snapshot-public-key, mountPath: /etc/public-edge-snapshot-public, readOnly: true}
+            {{- end }}
+            {{- if .Values.routeSnapshot.signingKeySecretRef }}
+            - {name: snapshot-signing-key, mountPath: /etc/public-edge-snapshot-signing, readOnly: true}
+            {{- end }}
+            {{- if .Values.routeSnapshot.tlsSecretRef }}
+            - {name: snapshot-tls, mountPath: /etc/public-edge-snapshot-tls, readOnly: true}
+            {{- end }}
             {{- if .Values.dns.nameserversConfigMap }}
             - {name: nameservers, mountPath: /etc/public-edge-nameservers, readOnly: true}
             {{- end }}
@@ -64,6 +76,22 @@ spec:
           configMap: {name: {{ include "public-edge-manager.name" . }}-records}
         - name: runtime
           configMap: {name: {{ .Values.runtime.configMapName }} }
+        {{- if .Values.dns.transfer.xot.tlsSecretRef }}
+        - name: xot-tls
+          secret: {secretName: {{ .Values.dns.transfer.xot.tlsSecretRef }}}
+        {{- end }}
+        {{- if .Values.routeSnapshot.publicKeyRef }}
+        - name: snapshot-public-key
+          configMap: {name: {{ .Values.routeSnapshot.publicKeyRef }}}
+        {{- end }}
+        {{- if .Values.routeSnapshot.signingKeySecretRef }}
+        - name: snapshot-signing-key
+          secret: {secretName: {{ .Values.routeSnapshot.signingKeySecretRef }}}
+        {{- end }}
+        {{- if .Values.routeSnapshot.tlsSecretRef }}
+        - name: snapshot-tls
+          secret: {secretName: {{ .Values.routeSnapshot.tlsSecretRef }}}
+        {{- end }}
         {{- if .Values.dns.nameserversConfigMap }}
         - name: nameservers
           configMap: {name: {{ .Values.dns.nameserversConfigMap }}}
@@ -95,4 +123,10 @@ spec:
   ports:
     - {name: dns-udp, port: 53, targetPort: {{ .Values.workload.dnsPort }}, protocol: UDP}
     - {name: dns-tcp, port: 53, targetPort: {{ .Values.workload.dnsPort }}, protocol: TCP}
+    {{- if ne .Values.dns.transfer.role "disabled" }}
+    - {name: xot, port: 853, targetPort: 853, protocol: TCP}
+    {{- end }}
+    {{- if eq .Values.dns.transfer.role "primary" }}
+    - {name: snapshot, port: 8443, targetPort: 8443, protocol: TCP}
+    {{- end }}
 {{- end }}

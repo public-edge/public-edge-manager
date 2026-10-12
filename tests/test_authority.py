@@ -814,6 +814,24 @@ class AuthorityTests(unittest.TestCase):
              mock.patch.object(authority, "kubernetes_get", side_effect=responses):
             self.assertFalse(authority.readiness_gate_ready("app"))
 
+    def test_all_unhealthy_regions_use_global_safety_candidate(self):
+        policy = {
+            "defaultRegion": "default",
+            "regions": {
+                "EU": [{"id": "flk", "ip": "192.0.2.20", "region": "EU"}],
+                "default": [{"id": "cn", "ip": "192.0.2.10", "region": "CN"}],
+            },
+        }
+        with mock.patch.object(authority, "ROUTING_POLICY", policy), \
+             mock.patch.object(authority, "CANDIDATES", []):
+            self.assertEqual(authority.default_candidate("EU")["id"], "cn")
+
+    def test_ecs_requires_a_trusted_resolver(self):
+        networks = [authority.ipaddress.ip_network("192.0.2.0/24")]
+        with mock.patch.object(authority, "TRUSTED_ECS_PREFIXES", networks):
+            self.assertTrue(authority.trusted_ecs_source("192.0.2.53"))
+            self.assertFalse(authority.trusted_ecs_source("198.51.100.53"))
+
 
 if __name__ == "__main__":
     unittest.main()
