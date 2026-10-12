@@ -1423,12 +1423,32 @@ def snapshot_payload():
     now = datetime.now(timezone.utc)
     zones = {zone: {"serial": zone_serial(zone)} for zone in sorted(AXFR_ZONES)}
     regional = {}
-    for area in ROUTING_POLICY.get("regions", {}):
+    for area, declared_order in ROUTING_POLICY.get("regions", {}).items():
         ranked_candidates = ranked(next(iter(SERVICES.values())), area) if SERVICES else []
-        regional[area] = [{
+        by_id = {item["id"]: item for item in ranked_candidates}
+        by_ip = {item["ip"]: item for item in ranked_candidates}
+        ordered = []
+        seen = set()
+        for declared in declared_order:
+            policy = {"id": declared} if isinstance(declared, str) else declared
+            item = by_id.get(policy.get("id")) or by_ip.get(policy.get("ip"))
+            if item:
+                seen.add(item["id"])
+                ordered.append({
+                    "id": item["id"], "ip": item["ip"],
+                    "region": policy.get("region", item.get("area", item.get("region"))),
+                    "healthy": item["state"] == "ready",
+                })
+            elif policy.get("id") and policy.get("ip"):
+                ordered.append({
+                    "id": policy["id"], "ip": policy["ip"],
+                    "region": policy.get("region", area), "healthy": False,
+                })
+        ordered.extend({
             "id": item["id"], "ip": item["ip"], "region": item.get("area", item.get("region")),
             "healthy": item["state"] == "ready",
-        } for item in ranked_candidates]
+        } for item in ranked_candidates if item["id"] not in seen)
+        regional[area] = ordered
     return {
         "schemaVersion": "v1",
         "gitRevision": os.getenv("GIT_REVISION", "unknown"),

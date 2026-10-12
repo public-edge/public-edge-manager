@@ -80,6 +80,35 @@ class AuthorityTests(unittest.TestCase):
         handler.do_GET()
         handler.send_response.assert_called_with(200)
 
+    def test_snapshot_regions_follow_declared_policy_order(self):
+        authority.ROUTING_POLICY = {
+            "defaultRegion": "default",
+            "regions": {
+                "EU": [
+                    {"id": "edge-eu-policy", "ip": "192.0.2.20", "region": "EU"},
+                    {"id": "edge-us-policy", "ip": "192.0.2.30", "region": "US"},
+                ],
+                "default": [
+                    {"id": "edge-cn-policy", "ip": "192.0.2.10", "region": "CN"},
+                    {"id": "edge-eu-policy", "ip": "192.0.2.20", "region": "EU"},
+                ],
+            },
+        }
+        discovered = [
+            {"id": "edge-us", "ip": "192.0.2.30", "area": "US", "state": "ready"},
+            {"id": "edge-eu", "ip": "192.0.2.20", "area": "DE", "state": "ready"},
+            {"id": "edge-cn", "ip": "192.0.2.10", "area": "CN", "state": "ready"},
+        ]
+        with mock.patch.object(authority, "ranked", return_value=discovered):
+            snapshot = authority.snapshot_payload()
+        self.assertEqual([item["ip"] for item in snapshot["regions"]["EU"]], [
+            "192.0.2.20", "192.0.2.30", "192.0.2.10",
+        ])
+        self.assertEqual([item["ip"] for item in snapshot["regions"]["default"]], [
+            "192.0.2.10", "192.0.2.20", "192.0.2.30",
+        ])
+        self.assertEqual(snapshot["regions"]["EU"][0]["region"], "EU")
+
     def test_nameserver_election_reloads_one_or_two_and_keeps_last_good_result(self):
         authority.NAMESERVERS = ["old.example.com."]
         with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as stream:
