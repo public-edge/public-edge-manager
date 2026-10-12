@@ -34,6 +34,8 @@ jobs:
         run: |
           helm lint .
           helm lint . -f examples/values-example.yaml
+          helm lint . -f tests/transfer-topology-values.yaml
+          helm template public-edge-manager . -f tests/transfer-topology-values.yaml >/dev/null
           helm template public-edge-manager . -f examples/values-example.yaml >/dev/null
           rendered=$(helm template public-edge-manager . -f examples/values-example.yaml)
           if printf '%s\n' "$rendered" | grep -q -E 'edge-authority-a|192\.0\.2\.|10\.0\.0\.'; then

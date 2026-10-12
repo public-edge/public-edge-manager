@@ -1,0 +1,108 @@
+{{- $root := . -}}
+{{- $records := printf "%s-records" (include "public-edge-manager.name" .) -}}
+{{- if and .Values.enabled .Values.transferTopology.primary.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: {{ include "public-edge-manager.name" . }}-hidden-primary}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}-hidden-primary}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}-hidden-primary}}
+    spec:
+      nodeName: {{ required "transferTopology.primary.nodeName is required" .Values.transferTopology.primary.nodeName }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: {{ include "public-edge-manager.name" . }}
+      tolerations: {{ .Values.workload.tolerations | toYaml | nindent 8 }}
+      containers:
+        - name: hidden-primary
+          image: {{ include "public-edge-manager.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom: [{configMapRef: {name: {{ include "public-edge-manager.name" . }}}}]
+          env:
+            - {name: NODE_NAME, value: {{ .Values.transferTopology.primary.nodeName | quote }}}
+            - {name: DNS_TRANSFER_ROLE, value: primary}
+            - {name: DNS_PORT, value: {{ .Values.transferTopology.shadowDnsPort | quote }}}
+            - {name: HTTP_PORT, value: "18080"}
+            - {name: XOT_LISTEN_ADDRESS, value: "0.0.0.0:853"}
+            - {name: ROUTE_SNAPSHOT_LISTEN_ADDRESS, value: "0.0.0.0:8443"}
+            - {name: RECORDS_FILE, value: /etc/public-edge-records/records.json}
+            - {name: RUNTIME_FILE, value: /etc/public-edge-runtime/runtime.json}
+            - {name: NAMESERVERS_FILE, value: /etc/public-edge-nameservers/nameservers.json}
+          ports:
+            - {name: xot, containerPort: 853, hostPort: 853, protocol: TCP}
+            - {name: snapshot, containerPort: 8443, hostPort: 8443, protocol: TCP}
+          volumeMounts:
+            - {name: records, mountPath: /etc/public-edge-records, readOnly: true}
+            - {name: runtime, mountPath: /etc/public-edge-runtime, readOnly: true}
+            - {name: nameservers, mountPath: /etc/public-edge-nameservers, readOnly: true}
+            - {name: xot-tls, mountPath: /etc/public-edge-xot, readOnly: true}
+            - {name: snapshot-tls, mountPath: /etc/public-edge-snapshot-tls, readOnly: true}
+            - {name: signing-key, mountPath: /etc/public-edge-snapshot-signing, readOnly: true}
+            - {name: state, mountPath: /var/lib/public-edge}
+          securityContext: {{ .Values.workload.containerSecurityContext | toYaml | nindent 12 }}
+          resources: {{ .Values.resources | toYaml | nindent 12 }}
+      volumes:
+        - {name: records, configMap: {name: {{ $records }}}}
+        - {name: runtime, configMap: {name: {{ .Values.runtime.configMapName }}}}
+        - {name: nameservers, configMap: {name: {{ required "nameserversConfigMap is required" .Values.dns.nameserversConfigMap }}}}
+        - {name: xot-tls, secret: {secretName: {{ required "primary TLS secret is required" .Values.transferTopology.primary.tlsSecretRef }}}}
+        - {name: snapshot-tls, secret: {secretName: {{ required "primary snapshot TLS secret is required" .Values.transferTopology.primary.snapshotTlsSecretRef }}}}
+        - {name: signing-key, secret: {secretName: {{ required "primary signing key is required" .Values.transferTopology.primary.signingKeySecretRef }}}}
+        - {name: state, emptyDir: {}}
+---
+{{- end }}
+{{- range .Values.transferTopology.secondaries }}
+{{- if .enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: {{ include "public-edge-manager.name" $root }}-secondary-{{ .id }} }
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" $root }}-secondary-{{ .id }} }}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" $root }}-secondary-{{ .id }} }}
+    spec:
+      nodeName: {{ required "secondary nodeName is required" .nodeName }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: {{ include "public-edge-manager.name" $root }}
+      tolerations: {{ $root.Values.workload.tolerations | toYaml | nindent 8 }}
+      containers:
+        - name: secondary
+          image: {{ include "public-edge-manager.image" $root }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          envFrom: [{configMapRef: {name: {{ include "public-edge-manager.name" $root }}}}]
+          env:
+            - {name: NODE_NAME, value: {{ .nodeName | quote }}}
+            - {name: DNS_TRANSFER_ROLE, value: secondary}
+            - {name: DNS_PORT, value: {{ $root.Values.transferTopology.shadowDnsPort | quote }}}
+            - {name: HTTP_PORT, value: "18080"}
+            - {name: XOT_SERVER_NAME, value: {{ $root.Values.dns.transfer.xot.serverName | quote }}}
+            - {name: ROUTE_SNAPSHOT_ENDPOINT, value: {{ $root.Values.routeSnapshot.endpoint | quote }}}
+            - {name: RECORDS_FILE, value: /etc/public-edge-records/records.json}
+            - {name: RUNTIME_FILE, value: /etc/public-edge-runtime/runtime.json}
+            - {name: NAMESERVERS_FILE, value: /etc/public-edge-nameservers/nameservers.json}
+          volumeMounts:
+            - {name: records, mountPath: /etc/public-edge-records, readOnly: true}
+            - {name: runtime, mountPath: /etc/public-edge-runtime, readOnly: true}
+            - {name: nameservers, mountPath: /etc/public-edge-nameservers, readOnly: true}
+            - {name: client-tls, mountPath: /etc/public-edge-xot, readOnly: true}
+            - {name: client-tls, mountPath: /etc/public-edge-snapshot-tls, readOnly: true}
+            - {name: public-key, mountPath: /etc/public-edge-snapshot-public, readOnly: true}
+            - {name: state, mountPath: /var/lib/public-edge}
+          securityContext: {{ $root.Values.workload.containerSecurityContext | toYaml | nindent 12 }}
+          resources: {{ $root.Values.resources | toYaml | nindent 12 }}
+      volumes:
+        - {name: records, configMap: {name: {{ $records }}}}
+        - {name: runtime, configMap: {name: {{ $root.Values.runtime.configMapName }}}}
+        - {name: nameservers, configMap: {name: {{ $root.Values.dns.nameserversConfigMap }}}}
+        - {name: client-tls, secret: {secretName: {{ required "secondary TLS secret is required" .tlsSecretRef }}}}
+        - {name: public-key, configMap: {name: {{ required "snapshot public key is required" $root.Values.routeSnapshot.publicKeyRef }}}}
+        - {name: state, emptyDir: {}}
+---
+{{- end }}
+{{- end }}
