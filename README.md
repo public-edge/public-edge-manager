@@ -117,6 +117,39 @@ be `pod` or `host-and-pod`. The controller records the evidence disposition in
 its API and `PublicEdge` status but never configures the evidence producer or
 network dataplane.
 
+### Optional Globalping quality evidence
+
+The chart can run one authenticated observer every five minutes. It measures
+three independent layers from configured Globalping regions: PublicEdge public
+IPs with ICMP, authoritative DNS addresses with SOA queries, and managed service
+hostnames with HTTPS. Results are written to the
+`public-edge-globalping-quality` ConfigMap, while candidate summaries are also
+merged into `PublicEdge.status.externalQuality`. The evidence is observe-only;
+it cannot withdraw an edge or change DNS ranking.
+
+Keep the API token in a pre-existing Secret and reference it from values:
+
+```yaml
+globalping:
+  enabled: true
+  apiTokenSecretRef:
+    name: globalping-api
+    key: GLOBALPING_API_TOKEN
+  intervalSeconds: 300
+  locations:
+    - {region: Eastern Asia}
+    - {region: South-eastern Asia}
+    - {region: Western Europe}
+  extraAuthorityAddresses: [192.0.2.53]
+```
+
+Empty `dnsTargets` and `httpTargets` inherit `discovery.childZones` and the
+configured service hostnames. `maxTargetsPerKind` and
+`maxMeasurementsPerCycle` bound API usage; the defaults stay within the
+authenticated 500-tests/hour allowance at five locations. The token is
+read only by the singleton observer and is never copied into a ConfigMap,
+PublicEdge status or logs.
+
 ## Install
 
 Start from [`examples/values-example.yaml`](examples/values-example.yaml), replace
