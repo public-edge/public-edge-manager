@@ -173,6 +173,32 @@
         "userAgent": { "type": "string", "minLength": 1 }
       }
     },
+    "globalping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "apiUrl", "apiTokenSecretRef", "intervalSeconds", "locations", "maxTargetsPerKind", "maxMeasurementsPerCycle", "outputConfigMap", "dnsTargets", "httpTargets", "extraAuthorityAddresses", "resources"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "apiUrl": {"type": "string", "pattern": "^https://"},
+        "apiTokenSecretRef": {
+          "type": "object", "additionalProperties": false,
+          "required": ["name", "key"],
+          "properties": {"name": {"type": "string"}, "key": {"type": "string", "minLength": 1}}
+        },
+        "intervalSeconds": {"type": "integer", "minimum": 300},
+        "locations": {
+          "type": "array", "minItems": 1, "maxItems": 10,
+          "items": {"type": "object", "minProperties": 1}
+        },
+        "maxTargetsPerKind": {"type": "integer", "minimum": 1, "maximum": 32},
+        "maxMeasurementsPerCycle": {"type": "integer", "minimum": 1, "maximum": 32},
+        "outputConfigMap": {"type": "string", "minLength": 1},
+        "dnsTargets": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "httpTargets": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "extraAuthorityAddresses": {"type": "array", "uniqueItems": true, "items": {"type": "string", "format": "ipv4"}},
+        "resources": {"type": "object"}
+      }
+    },
     "publication": {
       "type": "object",
       "properties": {
@@ -299,6 +325,10 @@
           "services": { "minProperties": 1 }
         }
       }
+    },
+    {
+      "if": {"properties": {"globalping": {"properties": {"enabled": {"const": true}}}}},
+      "then": {"properties": {"globalping": {"properties": {"apiTokenSecretRef": {"properties": {"name": {"minLength": 1}}}}}}}
     },
     {
       "if": {

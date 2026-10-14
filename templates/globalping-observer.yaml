@@ -1,0 +1,50 @@
+{{- if and .Values.enabled .Values.globalping.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "public-edge-manager.name" . }}-globalping
+  labels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}-globalping}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}-globalping}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: {{ include "public-edge-manager.name" . }}-globalping}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "public-edge-manager.name" . }}
+      automountServiceAccountToken: true
+      containers:
+        - name: observer
+          image: {{ include "public-edge-manager.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [python, -m, public_edge_manager.globalping_observer]
+          envFrom: [{configMapRef: {name: {{ include "public-edge-manager.name" . }}}}]
+          env:
+            - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
+            - name: GLOBALPING_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.globalping.apiTokenSecretRef.name }}
+                  key: {{ .Values.globalping.apiTokenSecretRef.key }}
+            - {name: GLOBALPING_API_URL, value: {{ .Values.globalping.apiUrl | quote }} }
+            - {name: GLOBALPING_INTERVAL_SECONDS, value: {{ .Values.globalping.intervalSeconds | quote }} }
+            - {name: GLOBALPING_LOCATIONS_JSON, value: {{ .Values.globalping.locations | toJson | quote }} }
+            - {name: GLOBALPING_MAX_TARGETS_PER_KIND, value: {{ .Values.globalping.maxTargetsPerKind | quote }} }
+            - {name: GLOBALPING_MAX_MEASUREMENTS_PER_CYCLE, value: {{ .Values.globalping.maxMeasurementsPerCycle | quote }} }
+            - {name: GLOBALPING_OUTPUT_CONFIGMAP, value: {{ .Values.globalping.outputConfigMap | quote }} }
+            - {name: GLOBALPING_DNS_TARGETS_JSON, value: {{ default .Values.discovery.childZones .Values.globalping.dnsTargets | toJson | quote }} }
+            - {name: GLOBALPING_HTTP_TARGETS_JSON, value: {{ default (keys .Values.services | sortAlpha) .Values.globalping.httpTargets | toJson | quote }} }
+            - {name: GLOBALPING_AUTHORITY_ADDRESSES_JSON, value: {{ .Values.globalping.extraAuthorityAddresses | toJson | quote }} }
+          resources: {{ .Values.globalping.resources | toYaml | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+{{- end }}

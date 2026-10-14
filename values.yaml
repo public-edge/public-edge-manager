@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/public-edge/public-edge-manager
-  tag: "0.7.3"
+  tag: "0.8.0"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -85,6 +85,33 @@ probe:
   # Bounds candidate/service TLS sampling so probes cannot starve health checks.
   maxWorkers: 8
   userAgent: public-edge-manager/0.4
+
+# Optional external quality observer. It submits bounded, authenticated
+# measurements from globally distributed probes and publishes observe-only
+# summaries to a ConfigMap and PublicEdge.status.externalQuality.
+globalping:
+  enabled: false
+  apiUrl: https://api.globalping.io
+  apiTokenSecretRef: {name: "", key: GLOBALPING_API_TOKEN}
+  intervalSeconds: 300
+  locations:
+    - {region: Eastern Asia}
+    - {region: South-eastern Asia}
+    - {region: Western Europe}
+    - {region: Northern America}
+    - {region: Australia and New Zealand}
+  maxTargetsPerKind: 8
+  # Split evenly across candidate, DNS and HTTP layers. Five locations x at
+  # most eight measurements x twelve cycles stays below 500 tests/hour.
+  maxMeasurementsPerCycle: 8
+  outputConfigMap: public-edge-globalping-quality
+  # Empty lists inherit discovery.childZones and the keys of services.
+  dnsTargets: []
+  httpTargets: []
+  extraAuthorityAddresses: []
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {cpu: 100m, memory: 96Mi}
 
 dns:
   soaRname: hostmaster.invalid.
