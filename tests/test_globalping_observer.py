@@ -57,8 +57,18 @@ class GlobalpingObserverTests(unittest.TestCase):
         self.assertEqual(contract["path"], "/ready")
         measure.assert_called_once_with(
             "http", "192.0.2.10",
-            {"protocol": "HTTPS", "request": {"method": "GET", "path": "/ready"},
-             "host": "db-rw.example.com"}, {200})
+            {"protocol": "HTTPS", "request": {"method": "GET", "path": "/ready",
+                                                "host": "db-rw.example.com"}}, {200})
+
+    def test_summarize_ping_accepts_packet_timing_array(self):
+        result = observer.summarize({
+            "id": "measurement-packets", "type": "ping",
+            "results": [{"probe": {"country": "DE"}, "result": {
+                "status": "finished", "timings": [{"ttl": 54, "rtt": 6.2}],
+                "stats": {"avg": 6.2, "loss": 0}}}],
+        })
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["latencyAvgMs"], 6.2)
 
     @mock.patch.object(observer, "publish_edge_quality")
     @mock.patch.object(observer, "publish_configmap")
