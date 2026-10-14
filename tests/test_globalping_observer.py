@@ -35,6 +35,31 @@ class GlobalpingObserverTests(unittest.TestCase):
         self.assertFalse(result["ready"])
         self.assertEqual(result["samples"][0]["latencyMs"], 320)
 
+    def test_summarize_http_requires_declared_status(self):
+        result = observer.summarize({
+            "id": "measurement-404", "type": "http",
+            "results": [{"probe": {"country": "DE", "region": "Western Europe"},
+                         "result": {"status": "finished", "statusCode": 404,
+                                    "resolvedAddress": "192.0.2.1",
+                                    "timings": {"dns": 1, "tcp": 2, "tls": 3,
+                                                "firstByte": 4, "total": 10}}}],
+        }, {200})
+        self.assertFalse(result["ready"])
+        self.assertEqual(result["samples"][0]["resolvedAddress"], "192.0.2.1")
+        self.assertEqual(result["samples"][0]["timings"]["tls"], 3)
+
+    @mock.patch.object(observer, "measure")
+    def test_measure_http_forces_edge_address_with_hostname(self, measure):
+        measure.return_value = {"ready": True}
+        contract, _ = observer.measure_http({
+            "hostname": "db-rw.example.com", "path": "/ready",
+            "acceptedStatuses": [200]}, "192.0.2.10")
+        self.assertEqual(contract["path"], "/ready")
+        measure.assert_called_once_with(
+            "http", "192.0.2.10",
+            {"protocol": "HTTPS", "request": {"method": "GET", "path": "/ready"},
+             "host": "db-rw.example.com"}, {200})
+
     @mock.patch.object(observer, "publish_edge_quality")
     @mock.patch.object(observer, "publish_configmap")
     @mock.patch.object(observer, "measure")
@@ -45,6 +70,7 @@ class GlobalpingObserverTests(unittest.TestCase):
         measure.return_value = {"ready": True, "measurementId": "m"}
         with mock.patch.object(observer, "DNS_TARGETS", ["example.com"]), \
                 mock.patch.object(observer, "HTTP_TARGETS", ["api.example.com."]), \
+                mock.patch.object(observer, "EDGE_HTTP_TARGETS", []), \
                 mock.patch.object(observer, "EXTRA_AUTHORITIES", ["192.0.2.53"]):
             document = observer.observe_once()
         self.assertEqual(set(document), {"provider", "observedAt", "locations",
@@ -69,10 +95,14 @@ class GlobalpingObserverTests(unittest.TestCase):
         with mock.patch.object(observer, "MAX_MEASUREMENTS", 3), \
                 mock.patch.object(observer, "DNS_TARGETS", ["example.com"]), \
                 mock.patch.object(observer, "HTTP_TARGETS", ["api.example.com."]), \
+                mock.patch.object(observer, "EDGE_HTTP_TARGETS", []), \
                 mock.patch.object(observer, "EXTRA_AUTHORITIES", ["192.0.2.53"]):
             document = observer.observe_once()
         self.assertEqual(measure.call_count, 3)
-        self.assertEqual(len(document["candidates"]), 1)
+        self.assertEqual(len(document["candidates"]), 8)
+        self.assertEqual(sum(
+            1 for item in document["candidates"].values()
+            if item["ping"].get("measurementId") == "m"), 1)
         self.assertEqual(len(document["authorities"]), 1)
         self.assertEqual(len(document["services"]), 1)
 

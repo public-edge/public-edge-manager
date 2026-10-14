@@ -61,9 +61,11 @@ spec:
             - {name: GATEWAY_NAMESPACE, value: {{ .Values.discovery.gatewayNamespace | quote }}}
             - {name: GATEWAY_SELECTOR, value: {{ .Values.discovery.gatewaySelector | quote }}}
             - {name: AUTHORITY_LABEL, value: {{ .Values.discovery.authorityLabel | quote }}}
+            - {name: AUTHORITY_QUALIFIED_LABEL, value: {{ .Values.discovery.authorityQualifiedLabel | quote }}}
             - {name: INGRESS_LABEL, value: {{ .Values.discovery.ingressLabel | quote }}}
             - {name: SERVICE_CLASSES, value: {{ join "," .Values.discovery.serviceClasses | quote }}}
             - {name: PARENT_ZONE, value: {{ .Values.discovery.parentZone | quote }}}
+            - {name: NAMESERVER_MIGRATION_PHASE, value: {{ .Values.discovery.nameserverMigrationPhase | quote }}}
             - {name: CHILD_ZONES_JSON, value: {{ .Values.discovery.childZones | toJson | quote }}}
             - {name: ADDRESS_ZONES_JSON, value: {{ .Values.discovery.addressZones | toJson | quote }}}
             - {name: REQUIRED_ADDRESS_NAMES_JSON, value: {{ .Values.discovery.requiredAddressNames | toJson | quote }}}

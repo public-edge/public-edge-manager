@@ -35,7 +35,7 @@
     },
     "discovery": {
       "type": "object",
-      "required": ["enabled", "replicas", "intervalSeconds", "probeTimeoutSeconds", "gatewaySelector", "authorityLabel", "ingressLabel"],
+      "required": ["enabled", "replicas", "intervalSeconds", "probeTimeoutSeconds", "gatewaySelector", "authorityLabel", "authorityQualifiedLabel", "ingressLabel", "nameserverMigrationPhase"],
       "properties": {
         "enabled": {"type": "boolean"},
         "replicas": {"type": "integer", "minimum": 2},
@@ -61,9 +61,11 @@
         "gatewayNamespace": {"type": "string"},
         "gatewaySelector": {"type": "string", "minLength": 3},
         "authorityLabel": {"type": "string", "minLength": 3},
+        "authorityQualifiedLabel": {"type": "string", "minLength": 3},
         "ingressLabel": {"type": "string", "minLength": 3},
         "serviceClasses": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
         "parentZone": {"type": "string"},
+        "nameserverMigrationPhase": {"enum": ["legacy", "dual", "slots"]},
         "childZones": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
         "addressZones": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
         "requiredAddressNames": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
@@ -176,7 +178,7 @@
     "globalping": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "apiUrl", "apiTokenSecretRef", "intervalSeconds", "locations", "maxTargetsPerKind", "maxMeasurementsPerCycle", "outputConfigMap", "dnsTargets", "httpTargets", "extraAuthorityAddresses", "resources"],
+      "required": ["enabled", "apiUrl", "apiTokenSecretRef", "intervalSeconds", "locations", "probeLimit", "maxTargetsPerKind", "maxMeasurementsPerCycle", "outputConfigMap", "dnsTargets", "httpTargets", "edgeHttpTargets", "extraAuthorityAddresses", "resources"],
       "properties": {
         "enabled": {"type": "boolean"},
         "apiUrl": {"type": "string", "pattern": "^https://"},
@@ -190,11 +192,37 @@
           "type": "array", "minItems": 1, "maxItems": 10,
           "items": {"type": "object", "minProperties": 1}
         },
+        "probeLimit": {"type": "integer", "minimum": 1, "maximum": 50},
         "maxTargetsPerKind": {"type": "integer", "minimum": 1, "maximum": 32},
         "maxMeasurementsPerCycle": {"type": "integer", "minimum": 1, "maximum": 32},
         "outputConfigMap": {"type": "string", "minLength": 1},
         "dnsTargets": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "httpTargets": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "httpTargets": {"type": "array", "uniqueItems": true, "items": {
+          "oneOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "object", "additionalProperties": false,
+             "required": ["hostname"],
+             "properties": {
+               "hostname": {"type": "string", "minLength": 1},
+               "path": {"type": "string", "pattern": "^/"},
+               "method": {"enum": ["GET", "HEAD"]},
+               "acceptedStatuses": {"type": "array", "minItems": 1, "uniqueItems": true,
+                 "items": {"type": "integer", "minimum": 100, "maximum": 599}}
+             }}
+          ]}},
+        "edgeHttpTargets": {"type": "array", "uniqueItems": true, "items": {
+          "oneOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "object", "additionalProperties": false,
+             "required": ["hostname"],
+             "properties": {
+               "hostname": {"type": "string", "minLength": 1},
+               "path": {"type": "string", "pattern": "^/"},
+               "method": {"enum": ["GET", "HEAD"]},
+               "acceptedStatuses": {"type": "array", "minItems": 1, "uniqueItems": true,
+                 "items": {"type": "integer", "minimum": 100, "maximum": 599}}
+             }}
+          ]}},
         "extraAuthorityAddresses": {"type": "array", "uniqueItems": true, "items": {"type": "string", "format": "ipv4"}},
         "resources": {"type": "object"}
       }
@@ -245,7 +273,7 @@
     "candidateSelection": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["capacityWeight", "localAreaBonus", "priorityWeight", "latencyDivisorMs", "latencyPenaltyCap", "localNodeBonus", "failoverGraceSeconds", "minReadySeconds", "minHoldSeconds", "resolverCidrs"],
+      "required": ["capacityWeight", "localAreaBonus", "priorityWeight", "latencyDivisorMs", "latencyPenaltyCap", "localNodeBonus", "failoverGraceSeconds", "minReadySeconds", "minHoldSeconds", "globalpingQualityMode", "globalpingQualityMaxAgeSeconds", "resolverCidrs"],
       "properties": {
         "capacityWeight": {"type": "integer", "minimum": 0},
         "localAreaBonus": {"type": "integer", "minimum": 0},
@@ -256,6 +284,8 @@
         "failoverGraceSeconds": {"type": "integer", "minimum": 0},
         "minReadySeconds": {"type": "integer", "minimum": 0},
         "minHoldSeconds": {"type": "integer", "minimum": 0},
+        "globalpingQualityMode": {"enum": ["Disabled", "Shadow", "Required"]},
+        "globalpingQualityMaxAgeSeconds": {"type": "integer", "minimum": 300},
         "resolverCidrs": {"type": "object"}
       }
     }
@@ -325,10 +355,6 @@
           "services": { "minProperties": 1 }
         }
       }
-    },
-    {
-      "if": {"properties": {"globalping": {"properties": {"enabled": {"const": true}}}}},
-      "then": {"properties": {"globalping": {"properties": {"apiTokenSecretRef": {"properties": {"name": {"minLength": 1}}}}}}}
     },
     {
       "if": {

@@ -127,7 +127,9 @@ hostnames with HTTPS. Results are written to the
 merged into `PublicEdge.status.externalQuality`. The evidence is observe-only;
 it cannot withdraw an edge or change DNS ranking.
 
-Keep the API token in a pre-existing Secret and reference it from values:
+An API token raises provider-side quotas. Keep it in a pre-existing Secret and
+reference it from values when available; an empty Secret name uses the public
+API quota:
 
 ```yaml
 globalping:
@@ -137,14 +139,24 @@ globalping:
     key: GLOBALPING_API_TOKEN
   intervalSeconds: 300
   locations:
-    - {region: Eastern Asia}
-    - {region: South-eastern Asia}
-    - {region: Western Europe}
+    - {magic: World}
+  probeLimit: 10
+  httpTargets:
+    - hostname: db-rw.example.com
+      path: /ready
+      acceptedStatuses: [200]
+  edgeHttpTargets:
+    - hostname: db-rw.example.com
+      path: /ready
+      acceptedStatuses: [200]
   extraAuthorityAddresses: [192.0.2.53]
 ```
 
 Empty `dnsTargets` and `httpTargets` inherit `discovery.childZones` and the
-configured service hostnames. `maxTargetsPerKind` and
+configured service hostnames. `probeLimit` is the exact probe count requested
+for each measurement (10 by default). `edgeHttpTargets` are sent to every
+concrete PublicEdge address while retaining the configured TLS SNI and HTTP
+Host; only declared response statuses are healthy. `maxTargetsPerKind` and
 `maxMeasurementsPerCycle` bound API usage; the defaults stay within the
 authenticated 500-tests/hour allowance at five locations. The token is
 read only by the singleton observer and is never copied into a ConfigMap,
