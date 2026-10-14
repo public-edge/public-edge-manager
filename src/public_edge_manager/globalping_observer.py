@@ -26,7 +26,7 @@ MAX_TARGETS = max(1, int(os.getenv("GLOBALPING_MAX_TARGETS_PER_KIND", "8")))
 MAX_MEASUREMENTS = max(1, int(os.getenv("GLOBALPING_MAX_MEASUREMENTS_PER_CYCLE", "8")))
 PROBE_LIMIT = max(1, min(50, int(os.getenv("GLOBALPING_PROBE_LIMIT", "10"))))
 OUTPUT_CONFIGMAP = os.getenv("GLOBALPING_OUTPUT_CONFIGMAP", "public-edge-globalping-quality")
-USER_AGENT = os.getenv("PROBE_USER_AGENT", "public-edge-manager/0.8.1")
+USER_AGENT = os.getenv("PROBE_USER_AGENT", "public-edge-manager/0.8.2")
 
 
 def now_rfc3339():
@@ -83,6 +83,8 @@ def summarize(measurement, accepted_statuses=None):
         probe = item.get("probe", {})
         stats = result.get("stats", {})
         timings = result.get("timings", {})
+        if not isinstance(timings, dict):
+            timings = {}
         timing_total = timings.get("total") if isinstance(timings, dict) else None
         usable = result.get("status") == "finished"
         if measurement_type == "ping":
@@ -165,7 +167,7 @@ def measure_http(contract, address=None):
     if address:
         # Globalping's host option preserves TLS SNI and the HTTP Host header
         # while connecting to the selected PublicEdge address.
-        options["host"] = target["hostname"]
+        options["request"]["host"] = target["hostname"]
     result = measure("http", address or target["hostname"], options,
                      set(target["acceptedStatuses"]))
     return target, result
