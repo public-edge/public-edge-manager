@@ -250,11 +250,29 @@ class ControllerTests(unittest.TestCase):
             controller.reconcile_object(desired, {"edge-a": {}})
         self.assertEqual(patch.call_args_list[1].args[1]["status"]["observedGeneration"], 7)
 
-    def test_names_are_stable_hashes_and_do_not_embed_node_name(self):
+    def test_names_use_persistent_two_digit_slots(self):
         with mock.patch.object(controller, "PARENT_ZONE", "example.com"):
             self.assertEqual(controller.object_name("uid-1"), controller.object_name("uid-1"))
-            self.assertNotIn("edge", controller.nameserver_name("uid-1"))
-            self.assertTrue(controller.nameserver_name("uid-1").endswith(".example.com."))
+            self.assertEqual(controller.nameserver_name(1), "ns-01.example.com.")
+            self.assertEqual(controller.nameserver_name(99), "ns-99.example.com.")
+            with self.assertRaises(ValueError):
+                controller.nameserver_name(100)
+
+    def test_nameserver_slots_are_persistent_and_lowest_free(self):
+        authorities = [{"uid": "node-b"}, {"uid": "node-a"}]
+        with mock.patch.object(controller, "PARENT_ZONE", "example.com"):
+            slots = controller.assign_nameserver_slots(authorities, {"retired": 1, "node-b": 7})
+        self.assertEqual(slots, {"retired": 1, "node-b": 7, "node-a": 2})
+        self.assertEqual(authorities[0]["slotNs"], "ns-07.example.com.")
+        self.assertEqual(authorities[1]["slotNs"], "ns-02.example.com.")
+
+    def test_dual_nameserver_phase_publishes_slot_before_legacy(self):
+        selected = [{"uid": "node-a", "slot": 2, "slotNs": "ns-02.example.com.",
+                     "legacyNs": "ns-deadbeef.example.com.", "ip": "192.0.2.1"}]
+        with mock.patch.object(controller, "NAMESERVER_MIGRATION_PHASE", "dual"):
+            effective = controller.effective_nameservers(selected)
+        self.assertEqual([item["ns"] for item in effective],
+                         ["ns-02.example.com.", "ns-deadbeef.example.com."])
 
     def test_gateway_is_selected_by_generic_label_and_programmed_state(self):
         gateway = {"metadata": {"name": "gateway", "namespace": "system", "labels": {

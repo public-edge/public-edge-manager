@@ -45,8 +45,11 @@ NPA_RESOURCE = os.getenv("FABRIC_EVIDENCE_RESOURCE", "networkpathassessments")
 GATEWAY_NAMESPACE = os.getenv("GATEWAY_NAMESPACE", "")
 GATEWAY_SELECTOR = os.getenv("GATEWAY_SELECTOR", "networking.re8ch.com/public-edge-gateway=true")
 AUTHORITY_LABEL = os.getenv("AUTHORITY_LABEL", f"{API_GROUP}/public-edge-authority-ready")
+AUTHORITY_QUALIFIED_LABEL = os.getenv(
+    "AUTHORITY_QUALIFIED_LABEL", f"{API_GROUP}/public-edge-authority-qualified")
 INGRESS_LABEL = os.getenv("INGRESS_LABEL", f"{API_GROUP}/public-edge-ready")
 NAMESERVER_CONFIGMAP = os.getenv("NAMESERVER_CONFIGMAP", "public-edge-nameservers")
+NAMESERVER_MIGRATION_PHASE = os.getenv("NAMESERVER_MIGRATION_PHASE", "legacy").lower()
 MAX_NAMESERVERS = max(1, min(5, int(os.getenv("MAX_NAMESERVERS", "3"))))
 PARENT_ZONE = os.getenv("PARENT_ZONE", "").rstrip(".").lower()
 CHILD_ZONES = [value.rstrip(".").lower() for value in json.loads(os.getenv("CHILD_ZONES_JSON", "[]"))]
@@ -99,8 +102,14 @@ def object_name(uid):
     return "edge-" + hashlib.sha256(uid.encode()).hexdigest()[:16]
 
 
-def nameserver_name(uid):
+def legacy_nameserver_name(uid):
     return f"ns-{hashlib.sha256(uid.encode()).hexdigest()[:12]}.{PARENT_ZONE}."
+
+
+def nameserver_name(slot):
+    if not isinstance(slot, int) or isinstance(slot, bool) or not 1 <= slot <= 99:
+        raise ValueError("nameserver slot must be an integer from 1 through 99")
+    return f"ns-{slot:02d}.{PARENT_ZONE}."
 
 
 def global_external_ip(node):
@@ -157,7 +166,7 @@ def dns_authority_candidate(node, public_ip, uid, node_capacity, inventory=None)
     if not ready:
         return None
     _, region = locality(node, inventory)
-    return {"uid": uid, "ip": public_ip, "ns": nameserver_name(uid),
+    return {"uid": uid, "ip": public_ip, "legacyNs": legacy_nameserver_name(uid),
             "region": region, "capacity": node_capacity}
 
 
@@ -177,7 +186,7 @@ def external_authority_candidate(authority):
     with ThreadPoolExecutor(max_workers=min(12, len(transports))) as executor:
         if not all(executor.map(lambda args: dns_transport_ready(*args), transports)):
             return None
-    return {"uid": f"external:{authority['id']}", "ip": str(address), "ns": nameserver,
+    return {"uid": f"external:{authority['id']}", "ip": str(address), "legacyNs": nameserver,
             "region": authority["region"], "capacity": authority.get("capacityMbps", 0)}
 
 
@@ -371,20 +380,83 @@ def reconcile_object(desired, existing):
     patch(base + "/status", {"status": desired["status"]})
 
 
-def patch_node_labels(node, ingress, authority):
+def patch_node_labels(node, ingress, authority, authority_qualified=False):
     labels = node.get("metadata", {}).get("labels", {})
     desired = {INGRESS_LABEL: "true" if ingress else None,
-               AUTHORITY_LABEL: "true" if authority else None}
+               AUTHORITY_LABEL: "true" if authority else None,
+               AUTHORITY_QUALIFIED_LABEL: "true" if authority_qualified else None}
     if all(labels.get(key) == value for key, value in desired.items() if value) and \
        all(key not in labels for key, value in desired.items() if value is None):
         return
     patch(f"/api/v1/nodes/{node['metadata']['name']}", {"metadata": {"labels": desired}})
 
 
-def ensure_nameserver_configmap(nameservers):
+def load_nameserver_slots():
+    path = f"/api/v1/namespaces/{NAMESPACE}/configmaps/{NAMESERVER_CONFIGMAP}"
+    try:
+        payload = api(path)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {}
+        raise
+    try:
+        slots = json.loads(payload.get("data", {}).get("slots.json", "{}"))
+    except (TypeError, ValueError):
+        return {}
+    result = {}
+    used = set()
+    for uid, slot in slots.items() if isinstance(slots, dict) else []:
+        if isinstance(uid, str) and isinstance(slot, int) and not isinstance(slot, bool) \
+                and 1 <= slot <= 99 and slot not in used:
+            result[uid] = slot
+            used.add(slot)
+    return result
+
+
+def assign_nameserver_slots(authorities, persisted):
+    slots = dict(persisted)
+    used = set(slots.values())
+    for uid in sorted(item["uid"] for item in authorities):
+        if uid in slots:
+            continue
+        slot = next((value for value in range(1, 100) if value not in used), None)
+        if slot is None:
+            raise RuntimeError("all 99 nameserver slots are allocated")
+        slots[uid] = slot
+        used.add(slot)
+    for item in authorities:
+        item["slot"] = slots[item["uid"]]
+        item["slotNs"] = nameserver_name(item["slot"])
+    return slots
+
+
+def effective_nameservers(authorities):
+    if NAMESERVER_MIGRATION_PHASE not in {"legacy", "dual", "slots"}:
+        raise ValueError("nameserver migration phase must be legacy, dual, or slots")
+    result = []
+    for item in authorities:
+        names = []
+        if NAMESERVER_MIGRATION_PHASE in {"dual", "slots"}:
+            names.append(item["slotNs"])
+        if NAMESERVER_MIGRATION_PHASE in {"legacy", "dual"}:
+            names.append(item["legacyNs"])
+        result.extend({**item, "ns": name} for name in names)
+    return result
+
+
+def ensure_nameserver_configmap(nameservers, slots):
     if not nameservers:
         return
-    payload = {"nameservers.json": json.dumps({"nameservers": [item["ns"] for item in nameservers]}, separators=(",", ":"))}
+    effective = effective_nameservers(nameservers)
+    payload = {
+        "nameservers.json": json.dumps(
+            {"nameservers": [item["ns"] for item in effective]}, separators=(",", ":")),
+        "slots.json": json.dumps(slots, separators=(",", ":"), sort_keys=True),
+        "authorities.json": json.dumps({"migrationPhase": NAMESERVER_MIGRATION_PHASE,
+            "authorities": [{key: item[key] for key in
+                ("uid", "ip", "region", "capacity", "slot", "slotNs", "legacyNs")}
+                for item in nameservers]}, separators=(",", ":"), sort_keys=True),
+    }
     path = f"/api/v1/namespaces/{NAMESPACE}/configmaps/{NAMESERVER_CONFIGMAP}"
     try:
         patch(path, {"data": payload})
@@ -507,7 +579,11 @@ def reconcile():
     existing = {item["metadata"]["name"]: item for item in existing_items
                 if item.get("metadata", {}).get("labels", {}).get(f"{API_GROUP}/managed") == "true"}
     desired_names = set()
-    authorities = []
+    external_candidates = [candidate for candidate in (
+        external_authority_candidate(authority) for authority in EXTERNAL_AUTHORITIES
+    ) if candidate]
+    external_by_ip = {item["ip"]: item for item in external_candidates}
+    authorities = list(external_candidates)
     for node in nodes:
         name = node.get("metadata", {}).get("name", "")
         uid = node.get("metadata", {}).get("uid", "")
@@ -522,8 +598,13 @@ def reconcile():
         listeners = {"http": tcp_probe(public_ip, 80), "https": tcp_probe(public_ip, 443)} if gateway_ready else {}
         ingress_ready = gateway_ready and all(listeners.values())
         authority = dns_authority_candidate(node, public_ip, uid, node_capacity, inventory)
+        # A qualified external authority owns its public address. Do not also
+        # publish the embedded authority under a second identity on that IP.
+        if public_ip in external_by_ip:
+            authority = None
         patch_node_labels(node, gateway_ready,
-                          dns_host_eligible(node, public_ip, uid))
+                          dns_host_eligible(node, public_ip, uid),
+                          bool(authority or public_ip in external_by_ip))
         if authority:
             authorities.append(authority)
         if not ingress_ready:
@@ -532,14 +613,7 @@ def reconcile():
                                node_capacity, inventory)
         desired_names.add(desired["metadata"]["name"])
         reconcile_object(desired, existing)
-    for authority in EXTERNAL_AUTHORITIES:
-        candidate = external_authority_candidate(authority)
-        if candidate:
-            # A router front end can share the former Kubernetes node's public
-            # IP. Once it qualifies, that IP must have just one NS identity.
-            authorities = [item for item in authorities if item["ip"] != candidate["ip"]]
-            authorities.append(candidate)
-    if len({item["ns"] for item in authorities}) != len(authorities):
+    if len({item["legacyNs"] for item in authorities}) != len(authorities):
         raise RuntimeError("duplicate public DNS nameserver among authorities")
     for name in set(existing) - desired_names:
         api(f"/apis/{API_GROUP}/{API_VERSION}/publicedges/{name}", "DELETE")
@@ -561,8 +635,9 @@ def reconcile():
         print("ALERT severity=critical reason=SingleNameserverDegraded", flush=True)
     elif not selected:
         print("ALERT severity=critical reason=NoHealthyNameserver preserving=last-known-good", flush=True)
-    ensure_nameserver_configmap(selected)  # Empty keeps the last-known-good set.
-    reconcile_cloudflare(selected)
+    slots = assign_nameserver_slots(authorities, load_nameserver_slots())
+    ensure_nameserver_configmap(selected, slots)  # Empty keeps the last-known-good set.
+    reconcile_cloudflare(effective_nameservers(selected))
     print(json.dumps({"nodes": len(nodes), "edges": len(desired_names), "authorities": len(selected),
                       "gateway": gateway_ip}), flush=True)
 

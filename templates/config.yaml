@@ -34,6 +34,8 @@ data:
   CANDIDATE_FAILOVER_GRACE_SECONDS: {{ .Values.candidateSelection.failoverGraceSeconds | quote }}
   CANDIDATE_MIN_READY_SECONDS: {{ .Values.candidateSelection.minReadySeconds | quote }}
   CANDIDATE_MIN_HOLD_SECONDS: {{ .Values.candidateSelection.minHoldSeconds | quote }}
+  GLOBALPING_QUALITY_MODE: {{ .Values.candidateSelection.globalpingQualityMode | quote }}
+  GLOBALPING_QUALITY_MAX_AGE_SECONDS: {{ .Values.candidateSelection.globalpingQualityMaxAgeSeconds | quote }}
   CLIENT_AREA_CIDRS_JSON: {{ .Values.candidateSelection.resolverCidrs | toJson | quote }}
   FABRIC_REQUIRE_DNS_DEPENDENCIES: {{ .Values.fabricEvidence.requireDNSDependencies | quote }}
   FABRIC_EVIDENCE_MODE: {{ .Values.fabricEvidence.mode | quote }}

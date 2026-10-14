@@ -20,11 +20,13 @@ BASE_URL = os.getenv("GLOBALPING_API_URL", "https://api.globalping.io").rstrip("
 LOCATIONS = json.loads(os.getenv("GLOBALPING_LOCATIONS_JSON", "[]"))
 DNS_TARGETS = json.loads(os.getenv("GLOBALPING_DNS_TARGETS_JSON", "[]"))
 HTTP_TARGETS = json.loads(os.getenv("GLOBALPING_HTTP_TARGETS_JSON", "[]"))
+EDGE_HTTP_TARGETS = json.loads(os.getenv("GLOBALPING_EDGE_HTTP_TARGETS_JSON", "[]"))
 EXTRA_AUTHORITIES = json.loads(os.getenv("GLOBALPING_AUTHORITY_ADDRESSES_JSON", "[]"))
 MAX_TARGETS = max(1, int(os.getenv("GLOBALPING_MAX_TARGETS_PER_KIND", "8")))
 MAX_MEASUREMENTS = max(1, int(os.getenv("GLOBALPING_MAX_MEASUREMENTS_PER_CYCLE", "8")))
+PROBE_LIMIT = max(1, min(50, int(os.getenv("GLOBALPING_PROBE_LIMIT", "10"))))
 OUTPUT_CONFIGMAP = os.getenv("GLOBALPING_OUTPUT_CONFIGMAP", "public-edge-globalping-quality")
-USER_AGENT = os.getenv("PROBE_USER_AGENT", "public-edge-manager/0.7")
+USER_AGENT = os.getenv("PROBE_USER_AGENT", "public-edge-manager/0.8.1")
 
 
 def now_rfc3339():
@@ -58,7 +60,7 @@ def kubernetes_api(path, method="GET", payload=None, content_type="application/j
 
 def create_measurement(kind, target, options=None):
     payload = {"type": kind, "target": target, "locations": LOCATIONS,
-               "limit": max(1, len(LOCATIONS)), "timeout": 15}
+               "limit": PROBE_LIMIT, "timeout": 15}
     if options:
         payload["measurementOptions"] = options
     headers = {"Authorization": f"Bearer {TOKEN}"} if TOKEN else {}
@@ -73,7 +75,7 @@ def create_measurement(kind, target, options=None):
     raise TimeoutError(f"measurement {measurement_id} did not finish")
 
 
-def summarize(measurement):
+def summarize(measurement, accepted_statuses=None):
     samples = []
     measurement_type = measurement.get("type", "")
     for item in measurement.get("results", []):
@@ -88,7 +90,11 @@ def summarize(measurement):
         elif measurement_type == "dns":
             usable = usable and result.get("statusCode") == 0 and bool(result.get("answers"))
         elif measurement_type == "http":
-            usable = usable and isinstance(result.get("statusCode"), int) and result["statusCode"] < 500
+            status_code = result.get("statusCode")
+            usable = usable and isinstance(status_code, int) and (
+                status_code in accepted_statuses if accepted_statuses is not None
+                else 200 <= status_code < 400 or status_code in (401, 403)
+            )
         samples.append({
             "status": result.get("status", "unknown"),
             "ready": usable,
@@ -97,6 +103,12 @@ def summarize(measurement):
             "latencyMs": stats.get("avg", timing_total),
             "lossPercent": stats.get("loss"),
             "statusCode": result.get("statusCode"),
+            "resolvedAddress": result.get("resolvedAddress", ""),
+            "timings": {
+                key: timings.get(key) for key in
+                ("dns", "tcp", "tls", "firstByte", "download", "total")
+                if isinstance(timings.get(key), (int, float))
+            },
         })
     finished = [item for item in samples if item["status"] == "finished"]
     latencies = [item["latencyMs"] for item in finished if isinstance(item["latencyMs"], (int, float))]
@@ -113,9 +125,9 @@ def summarize(measurement):
     }
 
 
-def measure(kind, target, options=None):
+def measure(kind, target, options=None, accepted_statuses=None):
     try:
-        return summarize(create_measurement(kind, target, options))
+        return summarize(create_measurement(kind, target, options), accepted_statuses)
     except Exception as exc:
         return {"ready": False, "error": f"{type(exc).__name__}: {exc}"[:240]}
 
@@ -128,6 +140,35 @@ def public_edges():
         if item.get("spec", {}).get("enabled") and endpoint.get("value"):
             result.append({"name": item["metadata"]["name"], "address": endpoint["value"]})
     return result
+
+
+def http_target(value):
+    """Normalize a service probe contract while retaining string compatibility."""
+    if isinstance(value, str):
+        return {"hostname": value.rstrip("."), "path": "/", "method": "GET",
+                "acceptedStatuses": [200, 201, 202, 204, 301, 302, 307, 308, 401, 403]}
+    if not isinstance(value, dict) or not value.get("hostname"):
+        raise ValueError("HTTP target requires hostname")
+    statuses = value.get("acceptedStatuses", [200])
+    if not isinstance(statuses, list) or not statuses or any(
+            not isinstance(status, int) or isinstance(status, bool) for status in statuses):
+        raise ValueError("HTTP target acceptedStatuses must be a non-empty integer list")
+    return {"hostname": value["hostname"].rstrip("."),
+            "path": value.get("path", "/"), "method": value.get("method", "GET"),
+            "acceptedStatuses": statuses}
+
+
+def measure_http(contract, address=None):
+    target = http_target(contract)
+    options = {"protocol": "HTTPS", "request": {
+        "method": target["method"], "path": target["path"]}}
+    if address:
+        # Globalping's host option preserves TLS SNI and the HTTP Host header
+        # while connecting to the selected PublicEdge address.
+        options["host"] = target["hostname"]
+    result = measure("http", address or target["hostname"], options,
+                     set(target["acceptedStatuses"]))
+    return target, result
 
 
 def publish_configmap(document):
@@ -145,11 +186,17 @@ def publish_configmap(document):
 
 
 def publish_edge_quality(edge_name, result, observed_at):
+    def compact(value):
+        if isinstance(value, dict):
+            return {key: compact(item) for key, item in value.items() if key != "samples"}
+        if isinstance(value, list):
+            return [compact(item) for item in value]
+        return value
+
     kubernetes_api(
         f"/apis/{API_GROUP}/{API_VERSION}/publicedges/{edge_name}/status", "PATCH",
         {"status": {"externalQuality": {"provider": "globalping", "observedAt": observed_at,
-                                        **{key: value for key, value in result.items()
-                                           if key != "samples"}}}},
+                                        **compact(result)}}},
         "application/merge-patch+json",
     )
 
@@ -157,14 +204,17 @@ def publish_edge_quality(edge_name, result, observed_at):
 def observe_once():
     observed_at = now_rfc3339()
     edges = public_edges()[:MAX_TARGETS]
-    candidate_results = {}
+    candidate_results = {
+        edge["name"]: {"target": edge["address"], "ping": {
+            "ready": False, "error": "measurement budget exhausted"}, "services": {}}
+        for edge in edges
+    }
     measurements = 0
     per_kind = max(1, MAX_MEASUREMENTS // 3)
     for edge in edges[:per_kind]:
         result = measure("ping", edge["address"], {"packets": 3, "protocol": "ICMP"})
         measurements += 1
-        candidate_results[edge["name"]] = {"target": edge["address"], **result}
-        publish_edge_quality(edge["name"], result, observed_at)
+        candidate_results[edge["name"]]["ping"] = result
     authority_addresses = list(dict.fromkeys(
         [edge["address"] for edge in edges] + [str(value) for value in EXTRA_AUTHORITIES]
     ))[:MAX_TARGETS]
@@ -182,10 +232,24 @@ def observe_once():
     for target in HTTP_TARGETS[:per_kind]:
         if measurements >= MAX_MEASUREMENTS:
             break
-        hostname = target.rstrip(".")
-        http_results[hostname] = measure("http", hostname, {
-            "protocol": "HTTPS", "request": {"method": "GET"}})
+        contract, result = measure_http(target)
+        http_results[contract["hostname"]] = {"path": contract["path"], **result}
         measurements += 1
+    # Probe configured critical services through each concrete edge address.
+    # This detects SNI/TLS failures hidden by ordinary DNS load balancing.
+    for edge in edges:
+        for target in EDGE_HTTP_TARGETS:
+            if measurements >= MAX_MEASUREMENTS:
+                break
+            contract, result = measure_http(target, edge["address"])
+            candidate_results[edge["name"]]["services"][contract["hostname"]] = {
+                "path": contract["path"], **result}
+            measurements += 1
+        combined = candidate_results[edge["name"]]
+        service_results = list(combined["services"].values())
+        combined["ready"] = combined["ping"].get("ready", False) and all(
+            item.get("ready", False) for item in service_results)
+        publish_edge_quality(edge["name"], combined, observed_at)
     document = {"provider": "globalping", "observedAt": observed_at,
                 "locations": LOCATIONS, "candidates": candidate_results,
                 "authorities": dns_results, "services": http_results}
@@ -197,8 +261,6 @@ def observe_once():
 
 
 def main():
-    if not TOKEN:
-        raise RuntimeError("GLOBALPING_API_TOKEN is required")
     while True:
         started = time.monotonic()
         try:

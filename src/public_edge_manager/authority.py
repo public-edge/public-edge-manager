@@ -91,6 +91,9 @@ CANDIDATE_LOCAL_NODE_BONUS = max(0, int(os.getenv("CANDIDATE_LOCAL_NODE_BONUS", 
 CANDIDATE_FAILOVER_GRACE_SECONDS = max(0, int(os.getenv("CANDIDATE_FAILOVER_GRACE_SECONDS", "300")))
 CANDIDATE_MIN_READY_SECONDS = max(0, int(os.getenv("CANDIDATE_MIN_READY_SECONDS", "120")))
 CANDIDATE_MIN_HOLD_SECONDS = max(0, int(os.getenv("CANDIDATE_MIN_HOLD_SECONDS", "600")))
+GLOBALPING_QUALITY_MODE = os.getenv("GLOBALPING_QUALITY_MODE", "Disabled")
+GLOBALPING_QUALITY_MAX_AGE_SECONDS = max(
+    300, int(os.getenv("GLOBALPING_QUALITY_MAX_AGE_SECONDS", "900")))
 SELECTIONS = {}
 DNS_READY = threading.Event()
 DNS_READY_MARKER = "/dev/shm/public-edge-dns-ready"
@@ -136,8 +139,8 @@ def reload_nameservers():
             return False
         payload = json.loads(raw)
         nameservers = payload["nameservers"]
-        if not isinstance(nameservers, list) or not 1 <= len(nameservers) <= 5:
-            raise ValueError("expected one to five nameservers")
+        if not isinstance(nameservers, list) or not 1 <= len(nameservers) <= 8:
+            raise ValueError("expected one to eight nameservers")
         if len(set(nameservers)) != len(nameservers):
             raise ValueError("duplicate nameserver")
         for name in nameservers:
@@ -351,6 +354,7 @@ def candidates_from_public_edges(service_definitions=None):
             "edgeReady": (item.get("status", {}).get("gatewayPath", {}).get("reachable") is True and
                           all(item.get("status", {}).get("protocolProbes", {}).get(protocol) is True
                               for protocol in ("http", "https"))),
+            "externalQuality": item.get("status", {}).get("externalQuality", {}),
             "probes": probes,
         })
     return candidates
@@ -846,6 +850,11 @@ def ranked(service, request_area=None):
             continue
         observed = snapshot.get(candidate["id"], {})
         network_evidence = fabric_evidence(candidate)
+        quality = candidate.get("externalQuality", {})
+        quality_fresh = ((parse_timestamp(quality.get("observedAt")) or 0) >=
+                         time.time() - GLOBALPING_QUALITY_MAX_AGE_SECONDS)
+        quality_ready = quality_fresh and quality.get("ready") is True
+        quality_eligible = (GLOBALPING_QUALITY_MODE != "Required" or quality_ready)
         fresh_probe = probe_fresh(observed)
         # Edge transport and backend health are separate.  A reachable edge
         # remains in DNS when a service has no ready Pod; Gateway API then
@@ -853,7 +862,7 @@ def ranked(service, request_area=None):
         edge_ready = candidate.get("edgeReady")
         if edge_ready is None:  # Compatibility for externally managed v1alpha1 objects.
             edge_ready = bool(observed.get("ready")) and fresh_probe and gate_ready
-        ready = bool(edge_ready) and network_evidence["eligible"]
+        ready = bool(edge_ready) and network_evidence["eligible"] and quality_eligible
         score = 0
         if ready:
             area = request_area or AREA
@@ -888,7 +897,11 @@ def ranked(service, request_area=None):
             "observedAt": observed.get("observedAt", 0),
             "serviceBackendReady": bool(observed.get("ready")) and fresh_probe and gate_ready,
             "networkEvidence": network_evidence,
+            "externalQuality": {**quality, "fresh": quality_fresh,
+                                "wouldReject": not quality_ready,
+                                "mode": GLOBALPING_QUALITY_MODE},
             "reason": ("ServiceProbeStale" if not fresh_probe else
+                       "GlobalPing quality rejected candidate" if not quality_eligible else
                        network_evidence.get("reason", "network evidence rejected candidate")
                        if not network_evidence["eligible"] else
                        observed.get("failure", "") if gate_ready else

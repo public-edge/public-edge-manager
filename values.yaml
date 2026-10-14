@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/public-edge/public-edge-manager
-  tag: "0.8.0"
+  tag: "0.8.1"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -43,9 +43,13 @@ discovery:
   gatewayNamespace: ""
   gatewaySelector: networking.re8ch.com/public-edge-gateway=true
   authorityLabel: networking.re8ch.com/public-edge-authority-ready
+  authorityQualifiedLabel: networking.re8ch.com/public-edge-authority-qualified
   ingressLabel: networking.re8ch.com/public-edge-ready
   serviceClasses: [api, web, registry, db-ro, db-rw]
   parentZone: ""
+  # legacy publishes the old hash names, dual publishes both generations, and
+  # slots publishes only stable ns-01..ns-99 names after parent delegation moves.
+  nameserverMigrationPhase: legacy
   childZones: []
   # Delegated apexes whose public A answers must be usable on every NS.
   addressZones: []
@@ -95,11 +99,8 @@ globalping:
   apiTokenSecretRef: {name: "", key: GLOBALPING_API_TOKEN}
   intervalSeconds: 300
   locations:
-    - {region: Eastern Asia}
-    - {region: South-eastern Asia}
-    - {region: Western Europe}
-    - {region: Northern America}
-    - {region: Australia and New Zealand}
+    - {magic: World}
+  probeLimit: 10
   maxTargetsPerKind: 8
   # Split evenly across candidate, DNS and HTTP layers. Five locations x at
   # most eight measurements x twelve cycles stays below 500 tests/hour.
@@ -108,6 +109,9 @@ globalping:
   # Empty lists inherit discovery.childZones and the keys of services.
   dnsTargets: []
   httpTargets: []
+  # Each contract is measured through every concrete PublicEdge address using
+  # hostname SNI/Host, so a broken edge cannot hide behind healthy DNS answers.
+  edgeHttpTargets: []
   extraAuthorityAddresses: []
   resources:
     requests: {cpu: 10m, memory: 32Mi}
@@ -176,6 +180,10 @@ candidateSelection:
   failoverGraceSeconds: 300
   minReadySeconds: 120
   minHoldSeconds: 600
+  # Shadow records wouldReject without changing DNS/service selection. Switch
+  # to Required only after enough representative data has accumulated.
+  globalpingQualityMode: Shadow # Disabled | Shadow | Required
+  globalpingQualityMaxAgeSeconds: 900
   resolverCidrs: {}
 
 # Optional, provider-neutral network evidence. PublicEdge discovers the CRD by
