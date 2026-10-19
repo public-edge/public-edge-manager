@@ -26,7 +26,7 @@ MAX_TARGETS = max(1, int(os.getenv("GLOBALPING_MAX_TARGETS_PER_KIND", "8")))
 MAX_MEASUREMENTS = max(1, int(os.getenv("GLOBALPING_MAX_MEASUREMENTS_PER_CYCLE", "8")))
 PROBE_LIMIT = max(1, min(50, int(os.getenv("GLOBALPING_PROBE_LIMIT", "10"))))
 OUTPUT_CONFIGMAP = os.getenv("GLOBALPING_OUTPUT_CONFIGMAP", "public-edge-globalping-quality")
-USER_AGENT = os.getenv("PROBE_USER_AGENT", "public-edge-manager/0.8.2")
+USER_AGENT = os.getenv("PROBE_USER_AGENT", "public-edge-manager/0.8.3")
 
 
 def now_rfc3339():
