@@ -566,6 +566,23 @@ class AuthorityTests(unittest.TestCase):
         self.assertTrue(authority.HEALTH["app"]["edge-a"]["ready"])
         self.assertEqual(authority.HEALTH["app"]["edge-a"]["successes"], 1)
 
+    def test_explicit_http_failure_withdraws_ready_edge_immediately(self):
+        candidate = {"id": "edge-a", "ip": "192.0.2.10"}
+        authority.HEALTH["app"]["edge-a"] = {
+            "ready": True, "successes": 4, "failures": 0,
+        }
+        response = mock.Mock(status=503)
+        connection = mock.Mock()
+        connection.getresponse.return_value = response
+        with mock.patch.object(authority.socket, "create_connection"), \
+             mock.patch.object(authority.ssl, "create_default_context"), \
+             mock.patch.object(authority.http.client, "HTTPConnection", return_value=connection):
+            authority.probe(candidate, "app", "https://app.example.com/healthz")
+        observed = authority.HEALTH["app"]["edge-a"]
+        self.assertFalse(observed["ready"])
+        self.assertEqual(observed["statusCode"], 503)
+        self.assertEqual(observed["failures"], 1)
+
     def test_external_cdn_cname_is_answered_without_public_edge(self):
         authority.AUTHORITY_ZONES = ["edge.example."]
         authority.EXTERNAL_RECORDS = {"assets.edge.example.": [{

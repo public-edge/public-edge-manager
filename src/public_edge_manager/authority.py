@@ -629,7 +629,10 @@ def probe(candidate, service, url):
         else:
             successes = 0
             failures = previous.get("failures", 0) + 1
-            ready = previous.get("ready", False) and failures < 2
+            # An explicit HTTP response proves that the edge reached a broken
+            # backend. Withdraw it immediately; the bounded failure grace is
+            # only for transport errors where no status was observed.
+            ready = previous.get("ready", False) and status == 0 and failures < 2
         HEALTH[service][candidate["id"]] = {
             "ready": ready,
             "statusCode": status,
