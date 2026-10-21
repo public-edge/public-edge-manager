@@ -1,0 +1,10 @@
+scenario,network,resources,runs,availabilityRate,failClosedRuns,meanQualifiedNodes,meanSelectedCapacityMbps,sameAreaHitRate,meanScoreMargin,selectionSwitches
+healthy-scarce,healthy,scarce,61,0.9836,1,0.984,115.574,1.0000,0.000,1
+healthy-adequate,healthy,adequate,63,0.9841,1,1.937,118.254,0.9839,98168.767,3
+healthy-abundant,healthy,abundant,123,0.9919,1,4.439,343.902,0.8770,25940.853,49
+degraded-scarce,degraded,scarce,61,0.9836,1,0.984,115.574,1.0000,0.000,1
+degraded-adequate,degraded,adequate,63,0.9683,2,0.968,113.492,1.0000,0.000,2
+degraded-abundant,degraded,abundant,123,0.9350,8,2.220,232.114,0.7913,84341.176,56
+failed-scarce,failed,scarce,61,0.0000,61,0.000,0.000,0.0000,0.000,0
+failed-adequate,failed,adequate,63,0.9683,2,0.968,290.476,0.0000,0.000,1
+failed-abundant,failed,abundant,123,0.9837,2,3.699,428.455,0.7521,75855.946,31

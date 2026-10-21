@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from .route_snapshot import atomic_write_json, load_private_key, load_public_key, sign_snapshot, verify_snapshot
+from .selection import ScoreModel, score_candidate, stable_rank
 
 NODE = os.getenv("NODE_NAME", "unknown")
 PROBE_CONNECT_TIMEOUT = float(os.getenv("PROBE_CONNECT_TIMEOUT_SECONDS", "5"))
@@ -881,13 +882,23 @@ def ranked(service, request_area=None):
             latency_divisor = max(1, int(RUNTIME_MODEL.get("latencyDivisorMs", CANDIDATE_LATENCY_DIVISOR_MS)))
             latency_cap = max(0, int(RUNTIME_MODEL.get("latencyPenaltyCap", CANDIDATE_LATENCY_PENALTY_CAP)))
             local_node_bonus = int(RUNTIME_MODEL.get("localNodeBonus", CANDIDATE_LOCAL_NODE_BONUS))
-            score = int(candidate.get("capacityMbps", 1)) * capacity_weight
-            if candidate.get("area", candidate["region"]) == area:
-                score += local_area_bonus
-            score -= int(regional_priority) * priority_weight
-            score -= min(int(observed.get("latencyMs", 0)) // latency_divisor, latency_cap)
-            if candidate["id"] == NODE:
-                score += local_node_bonus
+            score = score_candidate(
+                capacity_mbps=int(candidate.get("capacityMbps", 1)),
+                candidate_area=candidate.get("area", candidate["region"]),
+                request_area=area,
+                priority=int(regional_priority),
+                latency_ms=int(observed.get("latencyMs", 0)),
+                candidate_id=candidate["id"],
+                local_node_id=NODE,
+                model=ScoreModel(
+                    capacity_weight=capacity_weight,
+                    local_area_bonus=local_area_bonus,
+                    priority_weight=priority_weight,
+                    latency_divisor_ms=latency_divisor,
+                    latency_penalty_cap=latency_cap,
+                    local_node_bonus=local_node_bonus,
+                ),
+            ).total
         result.append({
             "id": candidate["id"], "region": candidate["region"],
             "area": candidate.get("area", candidate["region"]), "ip": candidate["ip"],
@@ -911,7 +922,7 @@ def ranked(service, request_area=None):
                        observed.get("failure", "") if gate_ready else
                        "configured readiness gate is not satisfied"),
         })
-    return sorted(result, key=lambda item: (-item["score"], item["id"]))
+    return stable_rank(result)
 
 
 def stable_selected(service, candidates, request_area=None, timestamp=None):

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "public-edge.dev/simulation-scenarios/v1",
+  "requestArea": "area-a",
+  "localNode": "node-01",
+  "network": {
+    "healthy": {"latenciesMs": [20, 50, 80], "description": "All required evidence is valid."},
+    "degraded": {"latenciesMs": [150, 300], "description": "Some evidence is stale or timed out."},
+    "failed": {"latenciesMs": [300], "description": "The local node has an explicit application failure."}
+  },
+  "resources": {
+    "scarce": [
+      {"id": "node-01", "area": "area-a", "capacityMbps": 100, "priority": 0}
+    ],
+    "adequate": [
+      {"id": "node-01", "area": "area-a", "capacityMbps": 100, "priority": 0},
+      {"id": "node-02", "area": "area-b", "capacityMbps": 300, "priority": 10}
+    ],
+    "abundant": [
+      {"id": "node-01", "area": "area-a", "capacityMbps": 100, "priority": 0},
+      {"id": "node-02", "area": "area-a", "capacityMbps": 300, "priority": 10},
+      {"id": "node-03", "area": "area-b", "capacityMbps": 1000, "priority": 0},
+      {"id": "node-04", "area": "area-b", "capacityMbps": 100, "priority": 100},
+      {"id": "node-05", "area": "area-c", "capacityMbps": 300, "priority": 10},
+      {"id": "node-06", "area": "area-c", "capacityMbps": 1000, "priority": 100}
+    ]
+  },
+  "scan": {
+    "latencyMs": {"start": 0, "stop": 1000, "step": 20},
+    "capacityMbps": [50, 100, 300, 1000],
+    "priority": [0, 10, 100]
+  }
+}

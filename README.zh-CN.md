@@ -73,19 +73,35 @@ kubectl -n public-edge-system exec deploy/public-edge-manager-cli -- \
 
 ## 网络与资源九宫格
 
-模型推演不需要复刻整个互联网。重点是组合两类条件：
+[`PublicEdge 多节点九宫格仿真研究`](research/MULTI_NODE_SIMULATION.zh-CN.md)
+直接复用生产评分函数，发布候选级 CSV、五张文本型 SVG 图表，以及
+[英文研究正文](research/MULTI_NODE_SIMULATION.md)。模型推演组合两类条件：
 
 - 外部网络：正常、退化、故障；
 - 手中资源：紧张、适中、充足。
 
-[九宫格场景说明](docs/SCENARIO-MATRIX.md)给出了每格的候选状态、预期 DNS/发布行为和开发者复现方法。
+[九宫格场景说明](docs/SCENARIO-MATRIX.md)给出运维摘要；完整研究提供每格的边界扫描、数据表和反例。
+
+![PublicEdge 九宫格可用性与失败关闭结果](research/charts/nine-grid-availability.svg)
+
+无需连接集群即可逐字节复现：
+
+```sh
+python -m pip install --require-hashes -r requirements-research.lock
+PYTHONPATH=src python research/generate.py
+git diff --exit-code -- research
+```
+
+这是确定性策略模型研究，不是互联网性能基准，也不代表生产流量。
 
 ## 文档与项目链接
 
+- [供应链与多节点仿真 Project](https://github.com/orgs/public-edge/projects/1)
 - [项目 Wiki](https://github.com/public-edge/public-edge-manager/wiki)
 - [CLI 使用指南](docs/CLI.md)
 - [依赖组件与责任图](docs/DEPENDENCIES.md)
 - [网络与资源九宫格](docs/SCENARIO-MATRIX.md)
+- [多节点仿真研究](research/MULTI_NODE_SIMULATION.zh-CN.md)
 - [发布物登记](artifacts.json)
 - [版本与签名发布物](https://github.com/public-edge/public-edge-manager/releases)
 - [贡献指南](CONTRIBUTING.md)
