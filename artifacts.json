@@ -1,0 +1,69 @@
+{
+  "$schema": ".github/artifacts.schema.json",
+  "schemaVersion": "public-edge.dev/artifacts/v1",
+  "project": {
+    "name": "public-edge-manager",
+    "repository": "https://github.com/public-edge/public-edge-manager",
+    "license": "Apache-2.0"
+  },
+  "release": {
+    "provider": "github",
+    "page": "https://github.com/public-edge/public-edge-manager/releases",
+    "tagPattern": "v{version}",
+    "versionSources": ["Chart.yaml:version", "Chart.yaml:appVersion", "pyproject.toml:project.version"],
+    "workflow": ".github/workflows/release.yml"
+  },
+  "artifacts": [
+    {
+      "id": "controller-image",
+      "kind": "oci-image",
+      "package": "https://github.com/public-edge/public-edge-manager/pkgs/container/public-edge-manager",
+      "reference": "ghcr.io/public-edge/public-edge-manager:{version}",
+      "platforms": ["linux/amd64"],
+      "source": "Dockerfile",
+      "signed": "cosign-keyless"
+    },
+    {
+      "id": "routeros-authority-image",
+      "kind": "oci-image",
+      "package": "https://github.com/orgs/public-edge/packages/container/package/routeros-authority",
+      "reference": "ghcr.io/public-edge/routeros-authority:v{version}",
+      "platforms": ["linux/arm/v7"],
+      "source": "routeros/Dockerfile",
+      "signed": "cosign-keyless"
+    },
+    {
+      "id": "helm-chart",
+      "kind": "helm-oci-chart",
+      "package": "https://github.com/orgs/public-edge/packages/container/package/charts%2Fpublic-edge-manager",
+      "reference": "oci://ghcr.io/public-edge/charts/public-edge-manager:{version}",
+      "platforms": ["kubernetes"],
+      "source": "Chart.yaml",
+      "signed": "cosign-blob-bundle"
+    },
+    {
+      "id": "github-release-assets",
+      "kind": "github-release-assets",
+      "reference": "https://github.com/public-edge/public-edge-manager/releases/tag/v{version}",
+      "files": [
+        "public-edge-manager-{version}.tgz",
+        "public-edge-manager-{version}.tgz.sha256",
+        "public-edge-manager-{version}.tgz.bundle.json",
+        "release-manifest.json",
+        "release-manifest.json.sha256",
+        "release-manifest.json.bundle.json"
+      ],
+      "source": ".github/workflows/release.yml",
+      "signed": "cosign-blob-bundle"
+    }
+  ],
+  "security": {
+    "policy": "SECURITY.md",
+    "privateReporting": "https://github.com/public-edge/public-edge-manager/security/advisories/new",
+    "automation": [
+      ".github/dependabot.yml",
+      ".github/workflows/security.yml",
+      ".github/workflows/scorecard.yml"
+    ]
+  }
+}

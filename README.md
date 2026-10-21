@@ -1,5 +1,10 @@
 # Public Edge Manager
 
+[![CI](https://github.com/public-edge/public-edge-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/public-edge/public-edge-manager/actions/workflows/ci.yml)
+[![Security governance](https://github.com/public-edge/public-edge-manager/actions/workflows/security.yml/badge.svg)](https://github.com/public-edge/public-edge-manager/actions/workflows/security.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/public-edge/public-edge-manager/badge)](https://securityscorecards.dev/viewer/?uri=github.com/public-edge/public-edge-manager)
+[![License](https://img.shields.io/github/license/public-edge/public-edge-manager)](LICENSE)
+
 Public Edge Manager is an open-source Kubernetes controller and authoritative
 DNS service for selecting healthy public ingress edges by locality, capacity,
 priority, and observed application latency. It is application- and DNS-provider
@@ -9,6 +14,68 @@ endpoints and Gateway VIPs are discovered from Kubernetes facts.
 The repository is the complete build context. It contains the controller source,
 tests, container definition, Helm chart, license, and CI/release workflows. It
 does not require code or ConfigMaps from a separate private repository.
+
+## Start here
+
+- **Install or evaluate:** follow [Install](#install) with
+  [`examples/values-example.yaml`](examples/values-example.yaml).
+- **Understand the model:** read [How it works](#how-it-works) and the
+  [exposure and security model](#exposure-and-security-model).
+- **Contribute:** use [`CONTRIBUTING.md`](CONTRIBUTING.md); pull requests run
+  tests, chart validation, dependency review and CodeQL.
+- **Report a vulnerability:** use the private process in
+  [`SECURITY.md`](SECURITY.md), not a public issue.
+- **Operate a release:** select immutable package digests from the GitHub
+  Release's signed `release-manifest.json`.
+
+### Published artifacts
+
+Every public artifact produced by this repository is registered in
+[`artifacts.json`](artifacts.json). CI rejects missing sources, inconsistent
+versions, unregistered signing methods and release workflows that no longer
+publish a registered artifact.
+
+| Artifact | Public location | Platform | Verification |
+| --- | --- | --- | --- |
+| Controller | `ghcr.io/public-edge/public-edge-manager` | `linux/amd64` | keyless Cosign image signature |
+| RouterOS authority | `ghcr.io/public-edge/routeros-authority` | `linux/arm/v7` | keyless Cosign image signature |
+| Helm chart | `oci://ghcr.io/public-edge/charts/public-edge-manager` | Kubernetes | checksum and Cosign bundle in the GitHub Release |
+| Release manifest | [GitHub Releases](https://github.com/public-edge/public-edge-manager/releases) | JSON | checksum and Cosign bundle |
+
+The repository-level inventory describes what may be published. Each GitHub
+Release contains a signed `release-manifest.json` recording what was actually
+published, including immutable image and chart digests.
+
+To inspect and verify a release before installing it:
+
+```sh
+VERSION=0.8.3
+gh release download "v${VERSION}" \
+  --repo public-edge/public-edge-manager \
+  --pattern 'release-manifest.json*' \
+  --pattern "public-edge-manager-${VERSION}.tgz*"
+
+sha256sum -c release-manifest.json.sha256
+sha256sum -c "public-edge-manager-${VERSION}.tgz.sha256"
+cosign verify-blob \
+  --bundle release-manifest.json.bundle.json \
+  --certificate-identity-regexp '^https://github.com/public-edge/public-edge-manager/.github/workflows/release.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  release-manifest.json
+
+# These are the immutable identities that were published by this release.
+jq -r '.artifacts[] | [.id, .reference] | @tsv' release-manifest.json
+```
+
+Verify an image from the manifest before mirroring or deploying it:
+
+```sh
+IMAGE=$(jq -r '.artifacts[] | select(.id == "controller-image") | .reference' release-manifest.json)
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/public-edge/public-edge-manager/.github/workflows/release.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  "${IMAGE}"
+```
 
 ## How it works
 
@@ -170,7 +237,7 @@ all documentation addresses and names, then install the OCI chart:
 ```sh
 helm install public-edge-manager \
   oci://ghcr.io/public-edge/charts/public-edge-manager \
-  --version 0.5.3 \
+  --version 0.8.3 \
   --namespace public-edge-system --create-namespace \
   --values values-production.yaml
 ```
