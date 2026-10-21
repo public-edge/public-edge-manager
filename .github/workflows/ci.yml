@@ -21,6 +21,7 @@ jobs:
       - name: Unit tests
         run: |
           python -m compileall -q src tests
+          python scripts/validate_artifacts.py
           PYTHONPATH=src python -m unittest discover -s tests -v
           PYTHONPATH=src python -m pytest -q
       - name: Reject private deployment data
