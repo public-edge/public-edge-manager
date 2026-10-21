@@ -1,5 +1,10 @@
 # Network and resource nine-grid
 
+For the reproducible candidate-level dataset, mathematical model and five SVG
+figures, read the [English multi-node study](../research/MULTI_NODE_SIMULATION.md)
+or its [Chinese edition](../research/MULTI_NODE_SIMULATION.zh-CN.md). This page is
+the shorter operator-oriented summary.
+
 The model can be explained with two independent axes:
 
 - **External network condition**: healthy, degraded, or failed.

@@ -97,11 +97,24 @@ deployment shape.
 
 ## Scenario simulation
 
-The [network and resource nine-grid](docs/SCENARIO-MATRIX.md) explains how the
-selection and failover model behaves across good, degraded, and failed external
-networks combined with scarce, adequate, and abundant edge resources. It also
-provides reproducible commands for developers to evaluate the model without
-touching production.
+The [multi-node simulation study](research/MULTI_NODE_SIMULATION.md) executes the
+production scoring function across a deterministic network/resource nine-grid.
+It publishes candidate-level CSV data, five text-only SVG figures, an English
+article and a [complete Chinese translation](research/MULTI_NODE_SIMULATION.zh-CN.md).
+
+![PublicEdge nine-grid availability and fail-closed results](research/charts/nine-grid-availability.svg)
+
+Reproduce every table and chart without contacting a cluster:
+
+```sh
+python -m pip install --require-hashes -r requirements-research.lock
+PYTHONPATH=src python research/generate.py
+git diff --exit-code -- research
+```
+
+The shorter [scenario matrix](docs/SCENARIO-MATRIX.md) remains the operator
+overview. The study is a deterministic policy-model analysis, not an Internet
+performance benchmark or a representation of production traffic.
 
 ## Documentation
 
@@ -120,6 +133,7 @@ for signed release manifests and immutable package identities.
 
 ## Project links
 
+- [Supply chain and multi-node simulation project](https://github.com/orgs/public-edge/projects/1)
 - [Helm and container packages](https://github.com/orgs/public-edge/packages)
 - [Issues](https://github.com/public-edge/public-edge-manager/issues)
 - [Contributing](CONTRIBUTING.md)
