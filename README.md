@@ -1,5 +1,7 @@
 # Public Edge Manager
 
+[简体中文](README.zh-CN.md)
+
 [![CI](https://github.com/public-edge/public-edge-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/public-edge/public-edge-manager/actions/workflows/ci.yml)
 [![Security governance](https://github.com/public-edge/public-edge-manager/actions/workflows/security.yml/badge.svg)](https://github.com/public-edge/public-edge-manager/actions/workflows/security.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/public-edge/public-edge-manager/badge)](https://securityscorecards.dev/viewer/?uri=github.com/public-edge/public-edge-manager)
@@ -50,6 +52,56 @@ helm install public-edge-manager \
 The chart defaults to `enabled: false`; installation does not publish an edge
 until the required service directory, nameserver fallback and readiness
 evidence are configured.
+
+Inspect the derived state from the least-privilege CLI pod:
+
+```sh
+kubectl -n public-edge-system exec deploy/public-edge-manager-cli -- \
+  edgectl status
+```
+
+Register a service, then inspect the result:
+
+```sh
+kubectl -n public-edge-system exec deploy/public-edge-manager-cli -- \
+  edgectl service-register app.example.com \
+  --service app --class web --probe-path /healthz \
+  --accepted-statuses 200,401
+
+kubectl -n public-edge-system exec deploy/public-edge-manager-cli -- \
+  edgectl status
+```
+
+See the [CLI guide](docs/CLI.md) for every command and a safe operator
+walkthrough.
+
+## Components it works with
+
+Public Edge Manager uses Kubernetes and Gateway API as its runtime sources of
+truth and serves authoritative DNS itself. Optional integrations provide
+network evidence, external measurements, or DNS-provider publication:
+
+- **ExternalDNS + PowerDNS**: Public Edge Manager selects the target and updates
+  a dedicated Ingress annotation; ExternalDNS performs the RFC 2136 write to
+  PowerDNS. Public Edge Manager never stores the PowerDNS credential.
+- **Globalping**: supplies bounded external DNS, HTTP, and edge-quality
+  observations; it is observe-only by default.
+- **NetworkPathAssessment producer**: supplies provider-neutral path evidence.
+- **Cloudflare**: optional parent-delegation reconciliation.
+- **RouterOS or another independent authority**: optional secondary authority
+  qualified through public UDP and TCP probes.
+
+These integrations are not all required. Read the
+[dependency and responsibility map](docs/DEPENDENCIES.md) before choosing a
+deployment shape.
+
+## Scenario simulation
+
+The [network and resource nine-grid](docs/SCENARIO-MATRIX.md) explains how the
+selection and failover model behaves across good, degraded, and failed external
+networks combined with scarce, adequate, and abundant edge resources. It also
+provides reproducible commands for developers to evaluate the model without
+touching production.
 
 ## Documentation
 
