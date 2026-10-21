@@ -15,7 +15,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
 ]
-dependencies = ["cryptography>=43,<47"]
+dependencies = ["cryptography>=43,<51"]
 
 [project.scripts]
 public-edge-manager = "public_edge_manager.authority:main"
