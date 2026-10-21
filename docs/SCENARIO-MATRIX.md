@@ -45,8 +45,8 @@ without a Kubernetes cluster:
 ```sh
 python3.12 -m venv .venv
 . .venv/bin/activate
-python -m pip install -r requirements-runtime.txt pytest==8.4.2
-python -m pip install --no-deps .
+python -m pip install --require-hashes -r requirements-test.lock
+python -m pip install --no-deps --no-build-isolation .
 PYTHONPATH=src python -m unittest discover -s tests -v
 PYTHONPATH=src python -m pytest -q
 ```

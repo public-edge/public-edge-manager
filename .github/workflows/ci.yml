@@ -18,10 +18,23 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - uses: astral-sh/setup-uv@5a7eac68fb9809dea845d802897dc5c723910fa3 # v7.1.3
+        with:
+          enable-cache: false
+      - name: Verify dependency lock files
+        run: |
+          uv pip compile --python-version 3.12 --universal --generate-hashes \
+            --custom-compile-command 'uv pip compile requirements-runtime.in --python-version 3.12 --universal --generate-hashes --output-file requirements-runtime.lock' \
+            requirements-runtime.in --output-file /tmp/requirements-runtime.lock
+          uv pip compile --python-version 3.12 --universal --generate-hashes \
+            --custom-compile-command 'uv pip compile requirements-test.in --python-version 3.12 --universal --generate-hashes --output-file requirements-test.lock' \
+            requirements-test.in --output-file /tmp/requirements-test.lock
+          cmp requirements-runtime.lock /tmp/requirements-runtime.lock
+          cmp requirements-test.lock /tmp/requirements-test.lock
       - name: Install project and test dependencies
         run: |
-          python -m pip install --requirement requirements-runtime.txt pytest==8.4.2
-          python -m pip install --no-deps .
+          python -m pip install --require-hashes --requirement requirements-test.lock
+          python -m pip install --no-deps --no-build-isolation .
       - name: Unit tests
         run: |
           python -m compileall -q src tests

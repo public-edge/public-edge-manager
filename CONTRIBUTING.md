@@ -6,6 +6,12 @@ free of organization-specific domains, addresses, credentials, and topology.
 Before opening a pull request, run:
 
 ```sh
+uv pip compile --python-version 3.12 --universal --generate-hashes \
+  requirements-runtime.in --output-file requirements-runtime.lock
+uv pip compile --python-version 3.12 --universal --generate-hashes \
+  requirements-test.in --output-file requirements-test.lock
+python -m pip install --require-hashes -r requirements-test.lock
+python -m pip install --no-deps --no-build-isolation .
 python -m unittest discover -s tests -v
 helm lint .
 helm lint . -f examples/values-example.yaml
