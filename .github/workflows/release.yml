@@ -28,7 +28,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Install ORAS
-        uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1.2.4
+        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
@@ -36,7 +36,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0d # v7.4.0
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: image
         with:
           context: .
@@ -52,7 +52,7 @@ jobs:
           DIGEST: ${{ steps.image.outputs.digest }}
         run: cosign sign --yes "ghcr.io/${GITHUB_REPOSITORY}@${DIGEST}"
       - name: Publish RouterOS ARM32 authority
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0d # v7.4.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: routeros-image
         with:
           context: .
