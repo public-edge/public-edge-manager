@@ -49,9 +49,17 @@
         "public-edge-manager-{version}.tgz",
         "public-edge-manager-{version}.tgz.sha256",
         "public-edge-manager-{version}.tgz.bundle.json",
+        "public-edge-manager-{version}.tgz.provenance.json",
         "release-manifest.json",
         "release-manifest.json.sha256",
-        "release-manifest.json.bundle.json"
+        "release-manifest.json.bundle.json",
+        "release-manifest.json.provenance.json",
+        "controller-image.spdx.json",
+        "controller-image.cyclonedx.json",
+        "controller-image.provenance.json",
+        "routeros-authority-image.spdx.json",
+        "routeros-authority-image.cyclonedx.json",
+        "routeros-authority-image.provenance.json"
       ],
       "source": ".github/workflows/release.yml",
       "signed": "cosign-blob-bundle"
