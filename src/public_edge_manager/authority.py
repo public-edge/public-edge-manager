@@ -601,6 +601,7 @@ def probe(candidate, service, url):
     failure = ""
     try:
         context = ssl.create_default_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         probe_ip = candidate.get("probeIp", candidate.get("localIp", candidate["ip"]))
         sock = socket.create_connection((probe_ip, 443), timeout=PROBE_CONNECT_TIMEOUT)
         tls = context.wrap_socket(sock, server_hostname=parsed.hostname)

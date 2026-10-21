@@ -559,10 +559,12 @@ class AuthorityTests(unittest.TestCase):
         response = mock.Mock(status=200)
         connection = mock.Mock()
         connection.getresponse.return_value = response
+        tls_context = mock.Mock()
         with mock.patch.object(authority.socket, "create_connection"), \
-             mock.patch.object(authority.ssl, "create_default_context"), \
+             mock.patch.object(authority.ssl, "create_default_context", return_value=tls_context), \
              mock.patch.object(authority.http.client, "HTTPConnection", return_value=connection):
             authority.probe(candidate, "app", "https://app.example.com/healthz")
+        self.assertEqual(tls_context.minimum_version, authority.ssl.TLSVersion.TLSv1_2)
         self.assertTrue(authority.HEALTH["app"]["edge-a"]["ready"])
         self.assertEqual(authority.HEALTH["app"]["edge-a"]["successes"], 1)
 
