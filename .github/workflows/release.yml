@@ -57,7 +57,7 @@ jobs:
         run: cosign sign --yes "ghcr.io/${GITHUB_REPOSITORY}@${DIGEST}"
       - name: Attest controller image provenance
         id: attest-controller
-        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.image.outputs.digest }}
@@ -78,7 +78,7 @@ jobs:
         run: cosign sign --yes "ghcr.io/${GITHUB_REPOSITORY_OWNER}/routeros-authority@${DIGEST}"
       - name: Attest RouterOS image provenance
         id: attest-routeros
-        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository_owner }}/routeros-authority
           subject-digest: ${{ steps.routeros-image.outputs.digest }}
@@ -133,7 +133,7 @@ jobs:
           echo "path=${chart}" >> "$GITHUB_OUTPUT"
       - name: Attest Helm chart provenance
         id: attest-chart
-        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: ${{ steps.chart.outputs.path }}
       - name: Record published package identities and evidence
@@ -196,7 +196,7 @@ jobs:
           (cd dist && sha256sum release-manifest.json > release-manifest.json.sha256)
       - name: Attest release manifest provenance
         id: attest-manifest
-        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/release-manifest.json
       - name: Verify all release evidence
