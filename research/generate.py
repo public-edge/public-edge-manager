@@ -191,18 +191,24 @@ def charts(summary: list[dict], rows: list[dict], runs: list[dict]) -> None:
 
     def save(fig, name):
         fig.tight_layout()
-        fig.savefig(CHARTS / name, format="svg", metadata={"Date": None, "Creator": "PublicEdge deterministic simulator"})
+        path = CHARTS / name
+        fig.savefig(path, format="svg", metadata={"Date": None, "Creator": "PublicEdge deterministic simulator"})
         plt.close(fig)
+        path.write_text("\n".join(line.rstrip() for line in path.read_text(encoding="utf-8").splitlines()) + "\n",
+                        encoding="utf-8")
 
     by_scenario = {row["scenario"]: row for row in summary}
     availability = np.array([[float(by_scenario[f"{n}-{r}"]["availabilityRate"]) for r in RESOURCES] for n in NETWORKS])
-    fig, ax = plt.subplots(figsize=(8, 4.8)); image = ax.imshow(availability, vmin=0, vmax=1, cmap="RdYlGn")
+    fig, ax = plt.subplots(figsize=(8, 4.8))
+    image = ax.pcolormesh(np.arange(4) - .5, np.arange(4) - .5, availability,
+                          vmin=0, vmax=1, cmap="RdYlGn", shading="flat")
     for y, network in enumerate(NETWORKS):
         for x, resource in enumerate(RESOURCES):
             row = by_scenario[f"{network}-{resource}"]
             ax.text(x, y, f"{availability[y, x]:.1%}\nFC {row['failClosedRuns']}", ha="center", va="center")
     ax.set_xticks(range(3), RESOURCES); ax.set_yticks(range(3), NETWORKS)
-    ax.set_title("Nine-grid availability and fail-closed runs"); fig.colorbar(image, ax=ax, label="selection availability")
+    ax.set_xlim(-.5, 2.5); ax.set_ylim(2.5, -.5)
+    ax.set_title("Nine-grid selection availability (cell color) and fail-closed runs")
     save(fig, "nine-grid-availability.svg")
 
     labels = [row["scenario"] for row in summary]; x = np.arange(len(labels))
