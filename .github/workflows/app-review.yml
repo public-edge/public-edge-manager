@@ -1,0 +1,76 @@
+name: GitHub App review gate
+
+on:
+  workflow_run:
+    workflows: [CI, CodeQL, Security governance]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-review-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  approve:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # The App has metadata:read, contents:read, checks:read, actions:read,
+      # and pull_requests:write. It is installed only on this repository.
+      - name: Create short-lived review token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.PUBLIC_EDGE_REVIEW_APP_ID }}
+          private-key: ${{ secrets.PUBLIC_EDGE_REVIEW_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: public-edge-manager
+
+      - name: Publish policy check for a fully checked same-repository pull request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          set -euo pipefail
+
+          pr_number=$(jq -r '.workflow_run.pull_requests[0].number // empty' "$EVENT_PATH")
+          if [ -z "$pr_number" ]; then
+            echo "No pull request is associated with this workflow run."
+            exit 0
+          fi
+
+          pr=$(gh api "repos/${GH_REPO}/pulls/${pr_number}")
+          test "$(jq -r '.state' <<<"$pr")" = open
+          test "$(jq -r '.draft' <<<"$pr")" = false
+          test "$(jq -r '.base.ref' <<<"$pr")" = main
+          test "$(jq -r '.head.sha' <<<"$pr")" = "$HEAD_SHA"
+          test "$(jq -r '.head.repo.full_name' <<<"$pr")" = "$GH_REPO"
+
+          checks=$(gh api "repos/${GH_REPO}/commits/${HEAD_SHA}/check-runs?per_page=100")
+          for required in test dependency-review CodeQL; do
+            conclusion=$(jq -r --arg required "$required" \
+              '[.check_runs[] | select(.name == $required)]
+               | sort_by(.completed_at) | last | .conclusion // ""' <<<"$checks")
+            if [ "$conclusion" != success ]; then
+              echo "Required check ${required} is ${conclusion:-missing}; not publishing policy check."
+              exit 0
+            fi
+          done
+
+          reviews=$(gh api "repos/${GH_REPO}/pulls/${pr_number}/reviews?per_page=100")
+          if jq -e 'any(.[]; .state == "CHANGES_REQUESTED")' <<<"$reviews" >/dev/null; then
+            echo "An active changes-requested review exists; not publishing policy check."
+            exit 0
+          fi
+
+          gh api --method POST "repos/${GH_REPO}/check-runs" \
+            -f name=public-edge-review \
+            -f head_sha="$HEAD_SHA" \
+            -f status=completed \
+            -f conclusion=success \
+            -f 'output[title]=Public Edge review policy passed' \
+            -f 'output[summary]=test, dependency-review, and CodeQL passed for this exact same-repository commit; no active changes-requested review exists.'
