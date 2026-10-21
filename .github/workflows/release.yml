@@ -15,6 +15,7 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -82,38 +83,23 @@ jobs:
           subject-name: ghcr.io/${{ github.repository_owner }}/routeros-authority
           subject-digest: ${{ steps.routeros-image.outputs.digest }}
           push-to-registry: true
-      - name: Generate controller SPDX SBOM
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-        with:
-          image: ghcr.io/${{ github.repository }}@${{ steps.image.outputs.digest }}
-          format: spdx-json
-          output-file: dist/controller-image.spdx.json
-          upload-artifact: false
-          upload-release-assets: false
-      - name: Generate controller CycloneDX SBOM
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-        with:
-          image: ghcr.io/${{ github.repository }}@${{ steps.image.outputs.digest }}
-          format: cyclonedx-json
-          output-file: dist/controller-image.cyclonedx.json
-          upload-artifact: false
-          upload-release-assets: false
-      - name: Generate RouterOS SPDX SBOM
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-        with:
-          image: ghcr.io/${{ github.repository_owner }}/routeros-authority@${{ steps.routeros-image.outputs.digest }}
-          format: spdx-json
-          output-file: dist/routeros-authority-image.spdx.json
-          upload-artifact: false
-          upload-release-assets: false
-      - name: Generate RouterOS CycloneDX SBOM
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-        with:
-          image: ghcr.io/${{ github.repository_owner }}/routeros-authority@${{ steps.routeros-image.outputs.digest }}
-          format: cyclonedx-json
-          output-file: dist/routeros-authority-image.cyclonedx.json
-          upload-artifact: false
-          upload-release-assets: false
+      - name: Install Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      - name: Generate image SBOMs for their published platforms
+        env:
+          CONTROLLER_DIGEST: ${{ steps.image.outputs.digest }}
+          ROUTEROS_DIGEST: ${{ steps.routeros-image.outputs.digest }}
+          SYFT: ${{ steps.syft.outputs.cmd }}
+        run: |
+          "$SYFT" scan --from registry --platform linux/amd64 \
+            "ghcr.io/${GITHUB_REPOSITORY}@${CONTROLLER_DIGEST}" \
+            -o spdx-json=dist/controller-image.spdx.json \
+            -o cyclonedx-json=dist/controller-image.cyclonedx.json
+          "$SYFT" scan --from registry --platform linux/arm/v7 \
+            "ghcr.io/${GITHUB_REPOSITORY_OWNER}/routeros-authority@${ROUTEROS_DIGEST}" \
+            -o spdx-json=dist/routeros-authority-image.spdx.json \
+            -o cyclonedx-json=dist/routeros-authority-image.cyclonedx.json
       - name: Attest image SBOMs
         env:
           CONTROLLER_DIGEST: ${{ steps.image.outputs.digest }}
