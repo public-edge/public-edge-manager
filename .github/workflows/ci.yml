@@ -12,12 +12,16 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Install project and test dependencies
-        run: python -m pip install . pytest==8.4.2
+        run: |
+          python -m pip install --requirement requirements-runtime.txt pytest==8.4.2
+          python -m pip install --no-deps .
       - name: Unit tests
         run: |
           python -m compileall -q src tests
@@ -30,7 +34,7 @@ jobs:
             echo 'private deployment data must stay outside public product defaults'
             exit 1
           fi
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
       - name: Validate Helm chart
         run: |
           helm lint .
@@ -50,8 +54,8 @@ jobs:
           test "$before" = "$record_only"
       - name: Build container
         run: docker build --build-arg VERSION=ci .
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build RouterOS ARM32 authority
         run: |
           docker buildx build --platform linux/arm/v7 -f routeros/Dockerfile . --load -t routeros-authority:ci
