@@ -1,4 +1,4 @@
-FROM python:3.12-alpine@sha256:236173eb74001afe2f60862de935b74fcbd00adfca247b2c27051a70a6a39a2d
+FROM python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
 
 ARG VERSION=dev
 LABEL org.opencontainers.image.source="https://github.com/public-edge/public-edge-manager" \
