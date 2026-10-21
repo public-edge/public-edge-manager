@@ -28,7 +28,7 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: public-edge-manager
 
-      - name: Approve only a fully checked same-repository pull request
+      - name: Publish policy check for a fully checked same-repository pull request
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
@@ -56,17 +56,21 @@ jobs:
               '[.check_runs[] | select(.name == $required)]
                | sort_by(.completed_at) | last | .conclusion // ""' <<<"$checks")
             if [ "$conclusion" != success ]; then
-              echo "Required check ${required} is ${conclusion:-missing}; not approving."
+              echo "Required check ${required} is ${conclusion:-missing}; not publishing policy check."
               exit 0
             fi
           done
 
           reviews=$(gh api "repos/${GH_REPO}/pulls/${pr_number}/reviews?per_page=100")
           if jq -e 'any(.[]; .state == "CHANGES_REQUESTED")' <<<"$reviews" >/dev/null; then
-            echo "An active changes-requested review exists; not approving."
+            echo "An active changes-requested review exists; not publishing policy check."
             exit 0
           fi
 
-          gh api --method POST "repos/${GH_REPO}/pulls/${pr_number}/reviews" \
-            -f event=APPROVE \
-            -f body='Automated approval: test, dependency-review, and CodeQL passed for this exact commit.'
+          gh api --method POST "repos/${GH_REPO}/check-runs" \
+            -f name=public-edge-review \
+            -f head_sha="$HEAD_SHA" \
+            -f status=completed \
+            -f conclusion=success \
+            -f 'output[title]=Public Edge review policy passed' \
+            -f 'output[summary]=test, dependency-review, and CodeQL passed for this exact same-repository commit; no active changes-requested review exists.'
