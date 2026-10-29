@@ -471,6 +471,21 @@ class AuthorityTests(unittest.TestCase):
             authority.kubernetes_get = original
         self.assertEqual(candidates[0]["probes"]["app"], "https://app.example.com/healthz")
 
+    def test_delegated_dns_alias_probes_client_tls_name_on_each_edge(self):
+        payload = {"items": [{"metadata": {"name": "edge-a"}, "spec": {
+            "enabled": True, "draining": False, "region": "test", "gatewayVIP": "10.251.0.4",
+            "endpoint": {"type": "PublicIP", "value": "192.0.2.10"},
+            "serviceClasses": ["api"],
+        }}]}
+        services = {"kube-api.service.example.com.": {
+            "service": "kube-api", "class": "api", "probeHost": "kube-api.example.com",
+            "probePath": "/readyz", "acceptedStatuses": [200],
+        }}
+        with mock.patch.object(authority, "kubernetes_get", return_value=payload):
+            candidates = authority.candidates_from_public_edges(services)
+        self.assertEqual(candidates[0]["probes"]["kube-api"],
+                         "https://kube-api.example.com/readyz")
+
     def test_probe_all_bounds_parallel_workers(self):
         authority.CANDIDATES[:] = [{
             "id": "edge-a", "probes": {

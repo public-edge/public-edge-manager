@@ -4,6 +4,7 @@ import ipaddress
 import json
 import os
 import hashlib
+import re
 import socket
 import socketserver
 import ssl
@@ -337,7 +338,15 @@ def candidates_from_public_edges(service_definitions=None):
             service_class = definition.get("class", "web")
             if service_class not in service_classes:
                 continue
-            probes[service] = f"https://{hostname.rstrip('.')}{definition.get('probePath', '/')}"
+            probe_host = definition.get("probeHost", hostname.rstrip("."))
+            if not isinstance(probe_host, str):
+                continue
+            probe_host = probe_host.rstrip(".")
+            if (len(probe_host) > 253 or not re.fullmatch(
+                    r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+                    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", probe_host)):
+                continue
+            probes[service] = f"https://{probe_host}{definition.get('probePath', '/')}"
         candidates.append({
             "id": item["metadata"]["name"],
             "generation": item["metadata"].get("generation", 0),
