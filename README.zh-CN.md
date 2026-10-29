@@ -27,7 +27,7 @@ cp examples/values-example.yaml values-production.yaml
 
 helm install public-edge-manager \
   oci://ghcr.io/public-edge/charts/public-edge-manager \
-  --version 0.8.4 \
+  --version 0.8.5 \
   --namespace public-edge-system --create-namespace \
   --values values-production.yaml
 ```
