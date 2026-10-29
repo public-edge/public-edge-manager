@@ -42,6 +42,13 @@ $EDGECLI service-register app.example.com \
   --accepted-statuses 200,401
 ```
 
+For a delegated DNS name whose TLS endpoint uses a different stable hostname,
+set `--probe-host` to that TLS name. The probe still connects to each candidate
+edge IP and validates the named endpoint there; DNS continues to publish only
+the registered domain. For example, `kube-api.service.example.com` can be
+published while probing `kube-api.example.com` with the certificate and SNI
+used by clients. Do not register the service until its 443 route is verified.
+
 The domain is normalized to lower case with a trailing dot. `--class` defaults
 to `web`, `--probe-path` defaults to `/`, and an omitted
 `--accepted-statuses` uses the controller's default success policy.

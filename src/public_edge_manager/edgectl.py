@@ -63,6 +63,8 @@ def mutate(args):
     document.setdefault("routes", {})
     if args.command == "service-register":
         definition = {"service": args.service, "class": args.service_class, "probePath": args.probe_path}
+        if args.probe_host:
+            definition["probeHost"] = args.probe_host.rstrip(".").lower()
         if args.accepted_statuses:
             definition["acceptedStatuses"] = [int(value) for value in args.accepted_statuses.split(",")]
         document["services"][f"{args.domain.rstrip('.').lower()}."] = definition
@@ -106,6 +108,7 @@ def main():
     register.add_argument("domain"); register.add_argument("--service", required=True)
     register.add_argument("--class", dest="service_class", default="web")
     register.add_argument("--probe-path", default="/"); register.add_argument("--accepted-statuses", default="")
+    register.add_argument("--probe-host", default="")
     delete = sub.add_parser("service-delete"); delete.add_argument("domain")
     model = sub.add_parser("model-set"); model.add_argument("key"); model.add_argument("value")
     unset = sub.add_parser("model-unset"); unset.add_argument("key")
