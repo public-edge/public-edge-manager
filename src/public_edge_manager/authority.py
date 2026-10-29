@@ -610,7 +610,17 @@ def probe(candidate, service, url):
     status = 0
     failure = ""
     try:
-        context = ssl.create_default_context()
+        definition = next(
+            (item for item in SERVICE_DEFINITIONS.values() if item["service"] == service),
+            {},
+        )
+        trust = definition.get("probeTrust", "system")
+        if trust == "kubernetes-ca":
+            context = ssl.create_default_context(cafile=f"{SERVICE_ACCOUNT}/ca.crt")
+        elif trust == "system":
+            context = ssl.create_default_context()
+        else:
+            raise ValueError("unsupported probe trust source")
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         probe_ip = candidate.get("probeIp", candidate.get("localIp", candidate["ip"]))
         sock = socket.create_connection((probe_ip, 443), timeout=PROBE_CONNECT_TIMEOUT)

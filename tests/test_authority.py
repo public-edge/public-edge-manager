@@ -486,6 +486,26 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(candidates[0]["probes"]["kube-api"],
                          "https://kube-api.example.com/readyz")
 
+    def test_kubernetes_api_probe_uses_service_account_ca(self):
+        authority.SERVICE_DEFINITIONS = {"kube-api.service.example.com.": {
+            "service": "kube-api", "probeTrust": "kubernetes-ca", "acceptedStatuses": [200],
+        }}
+        authority.HEALTH["kube-api"] = {}
+        candidate = {"id": "edge-a", "ip": "192.0.2.10"}
+        with mock.patch.object(authority.ssl, "create_default_context") as context, \
+             mock.patch.object(authority.socket, "create_connection", side_effect=OSError("probe stopped")):
+            authority.probe(candidate, "kube-api", "https://kube-api.example.com/readyz")
+        context.assert_called_once_with(cafile=f"{authority.SERVICE_ACCOUNT}/ca.crt")
+
+    def test_unknown_probe_trust_fails_closed(self):
+        authority.SERVICE_DEFINITIONS = {"app.example.com.": {
+            "service": "app", "probeTrust": "insecure",
+        }}
+        with mock.patch.object(authority.ssl, "create_default_context") as context:
+            authority.probe({"id": "edge-a", "ip": "192.0.2.10"}, "app", "https://app.example.com/")
+        context.assert_not_called()
+        self.assertFalse(authority.HEALTH["app"]["edge-a"]["ready"])
+
     def test_probe_all_bounds_parallel_workers(self):
         authority.CANDIDATES[:] = [{
             "id": "edge-a", "probes": {
