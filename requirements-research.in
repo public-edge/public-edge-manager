@@ -1,2 +1,2 @@
-matplotlib==3.10.7
+matplotlib==3.11.2
 python-dateutil<4
