@@ -1,5 +1,5 @@
 -r requirements-runtime.in
 
-pytest==8.4.2
+pytest==9.2.0
 setuptools>=77
 wheel>=0.45
