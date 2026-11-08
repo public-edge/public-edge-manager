@@ -10,6 +10,26 @@
         "configMapName": {"type": "string", "minLength": 1}
       }
     },
+    "redirector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sniRoutes"],
+      "properties": {
+        "sniRoutes": {
+          "type": "object",
+          "propertyNames": {"format": "hostname"},
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["host", "port"],
+            "properties": {
+              "host": {"type": "string", "minLength": 1},
+              "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+            }
+          }
+        }
+      }
+    },
     "api": {
       "type": "object",
       "required": ["group"],

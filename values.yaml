@@ -63,6 +63,11 @@ discovery:
 runtime:
   configMapName: public-edge-runtime
 
+redirector:
+  # Exact TLS SNI names may bypass the canonical HTTPS-terminating Gateway.
+  # Values are L4 upstreams; TLS remains end-to-end and no credentials are held here.
+  sniRoutes: {}
+
 workload:
   hostNetwork: true
   # Leave one rollout slot for a pod wedged on an unreachable/retired node,
