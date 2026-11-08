@@ -30,6 +30,7 @@ spec:
           env:
             - {name: API_GROUP, value: {{ .Values.api.group | quote }}}
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+            - {name: SNI_ROUTES, value: {{ .Values.redirector.sniRoutes | toJson | quote }}}
           ports:
             - {name: http, containerPort: 80, hostPort: 80, protocol: TCP}
             - {name: https, containerPort: 443, hostPort: 443, protocol: TCP}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generic L4 public listener forwarding to the discovered Gateway VIP."""
+"""L4 public listener with optional exact-SNI upstream overrides."""
 
 import asyncio
 import json
@@ -12,6 +12,92 @@ SA = "/var/run/secrets/kubernetes.io/serviceaccount"
 NODE = os.environ["NODE_NAME"]
 API_GROUP = os.getenv("API_GROUP", "networking.re8ch.com")
 TARGET = {"host": "", "ports": {80, 443}}
+SNI_ROUTES = json.loads(os.getenv("SNI_ROUTES", "{}"))
+CLIENT_HELLO_LIMIT = 65536
+CLIENT_HELLO_TIMEOUT = 3
+
+
+def client_hello_sni(data):
+    """Return the lower-case SNI from buffered TLS records, if complete."""
+    payload = bytearray()
+    offset = 0
+    while offset + 5 <= len(data):
+        content_type = data[offset]
+        length = int.from_bytes(data[offset + 3:offset + 5], "big")
+        end = offset + 5 + length
+        if end > len(data):
+            return None
+        if content_type == 22:
+            payload.extend(data[offset + 5:end])
+        offset = end
+        if len(payload) >= 4:
+            message_length = int.from_bytes(payload[1:4], "big")
+            if len(payload) >= 4 + message_length:
+                break
+    if len(payload) < 4 or payload[0] != 1:
+        return None
+    message_length = int.from_bytes(payload[1:4], "big")
+    hello = memoryview(payload)[4:4 + message_length]
+    if len(hello) < 35:
+        return None
+    cursor = 34
+    session_length = hello[cursor]
+    cursor += 1 + session_length
+    if cursor + 2 > len(hello):
+        return None
+    cipher_length = int.from_bytes(hello[cursor:cursor + 2], "big")
+    cursor += 2 + cipher_length
+    if cursor >= len(hello):
+        return None
+    compression_length = hello[cursor]
+    cursor += 1 + compression_length
+    if cursor + 2 > len(hello):
+        return None
+    extensions_length = int.from_bytes(hello[cursor:cursor + 2], "big")
+    cursor += 2
+    extensions_end = min(cursor + extensions_length, len(hello))
+    while cursor + 4 <= extensions_end:
+        extension_type = int.from_bytes(hello[cursor:cursor + 2], "big")
+        extension_length = int.from_bytes(hello[cursor + 2:cursor + 4], "big")
+        cursor += 4
+        extension_end = cursor + extension_length
+        if extension_end > extensions_end:
+            return None
+        if extension_type == 0 and extension_length >= 5:
+            names = hello[cursor:extension_end]
+            names_cursor = 2
+            while names_cursor + 3 <= len(names):
+                name_type = names[names_cursor]
+                name_length = int.from_bytes(names[names_cursor + 1:names_cursor + 3], "big")
+                names_cursor += 3
+                if names_cursor + name_length > len(names):
+                    return None
+                if name_type == 0:
+                    try:
+                        return bytes(names[names_cursor:names_cursor + name_length]).decode("ascii").lower()
+                    except UnicodeDecodeError:
+                        return None
+                names_cursor += name_length
+        cursor = extension_end
+    return None
+
+
+async def tls_prefix(reader):
+    data = bytearray()
+    while len(data) < CLIENT_HELLO_LIMIT:
+        chunk = await asyncio.wait_for(reader.read(min(4096, CLIENT_HELLO_LIMIT - len(data))),
+                                       timeout=CLIENT_HELLO_TIMEOUT)
+        if not chunk:
+            break
+        data.extend(chunk)
+        hostname = client_hello_sni(data)
+        if hostname:
+            return bytes(data), hostname
+        if len(data) >= 5:
+            record_length = int.from_bytes(data[3:5], "big")
+            if len(data) >= 5 + record_length and data[0] != 22:
+                break
+    return bytes(data), None
 
 
 def kubernetes_get(path):
@@ -54,16 +140,30 @@ async def pipe(reader, writer):
 
 async def handle(client_reader, client_writer, port):
     host = TARGET["host"]
+    upstream_port = port
+    prefix = b""
+    if port == 443 and SNI_ROUTES:
+        try:
+            prefix, hostname = await tls_prefix(client_reader)
+        except (asyncio.TimeoutError, ConnectionError):
+            client_writer.close()
+            return
+        route = SNI_ROUTES.get(hostname, {})
+        host = route.get("host", host)
+        upstream_port = route.get("port", port)
     if not host:
         client_writer.close()
         return
     try:
         upstream_reader, upstream_writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=3
+            asyncio.open_connection(host, upstream_port), timeout=3
         )
     except (OSError, asyncio.TimeoutError):
         client_writer.close()
         return
+    if prefix:
+        upstream_writer.write(prefix)
+        await upstream_writer.drain()
     await asyncio.gather(pipe(client_reader, upstream_writer), pipe(upstream_reader, client_writer))
 
 
