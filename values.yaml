@@ -20,6 +20,11 @@ readinessGates: {}
 
 discovery:
   enabled: true
+  # Reviewed cross-cluster ingress endpoints. These objects remain visible as
+  # PublicEdge resources, but are not owned or garbage-collected by the local
+  # node discovery controller. Independent per-service HTTPS probes are the
+  # runtime health gate; the transport must be an AmongCluster export.
+  federatedEdges: []
   replicas: 2
   dnsPolicy: ClusterFirst
   dnsNameservers: []
