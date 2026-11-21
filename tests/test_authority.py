@@ -471,6 +471,31 @@ class AuthorityTests(unittest.TestCase):
             authority.kubernetes_get = original
         self.assertEqual(candidates[0]["probes"]["app"], "https://app.example.com/healthz")
 
+    def test_federated_edge_uses_live_service_probe_as_transport_gate(self):
+        payload = {"items": [{
+            "metadata": {"name": "atlantic-la-1"},
+            "spec": {
+                "enabled": True, "draining": False, "area": "US-WEST", "region": "us-la-1",
+                "nodeName": "overseas-la", "gatewayVIP": "179.255.126.104",
+                "endpoint": {"type": "PublicIP", "value": "179.255.126.104"},
+                "serviceClasses": ["web"], "forwarding": {"mode": "RegionalRelay"},
+                "discovery": {"source": "AmongCluster", "clusterRef": "re8ch-atlantic",
+                              "serviceRef": "public-edge-https"},
+            },
+        }]}
+        with mock.patch.object(authority, "kubernetes_get", return_value=payload):
+            candidate = authority.candidates_from_public_edges()[0]
+        self.assertTrue(candidate["federated"])
+        self.assertIsNone(candidate["edgeReady"])
+        with mock.patch.object(authority, "FABRIC_EVIDENCE_MODE", "Required"):
+            evidence = authority.fabric_evidence(candidate)
+        self.assertTrue(evidence["eligible"])
+        self.assertEqual(evidence["state"], "AmongClusterExport")
+
+    def test_federated_edge_requires_complete_amongcluster_contract(self):
+        candidate = {"federated": True, "federation": {"source": "AmongCluster"}}
+        self.assertFalse(authority.fabric_evidence(candidate)["eligible"])
+
     def test_delegated_dns_alias_probes_client_tls_name_on_each_edge(self):
         payload = {"items": [{"metadata": {"name": "edge-a"}, "spec": {
             "enabled": True, "draining": False, "region": "test", "gatewayVIP": "10.251.0.4",

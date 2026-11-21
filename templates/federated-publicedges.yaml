@@ -1,0 +1,44 @@
+{{- range .Values.discovery.federatedEdges }}
+{{- if or (not .name) (not .clusterRef) (not .serviceRef) (not .nodeName) (not .area) (not .region) (not .address) }}
+{{- fail "each discovery.federatedEdges entry requires name, clusterRef, serviceRef, nodeName, area, region, and address" }}
+{{- end }}
+apiVersion: {{ $.Values.api.group }}/v1alpha1
+kind: PublicEdge
+metadata:
+  name: {{ .name | quote }}
+  labels:
+    {{ $.Values.api.group }}/federated: "true"
+    {{ $.Values.api.group }}/remote-cluster: {{ .clusterRef | quote }}
+spec:
+  area: {{ .area | quote }}
+  region: {{ .region | quote }}
+  nodeName: {{ .nodeName | quote }}
+  enabled: {{ if hasKey . "enabled" }}{{ .enabled }}{{ else }}true{{ end }}
+  draining: {{ if hasKey . "draining" }}{{ .draining }}{{ else }}false{{ end }}
+  endpoint:
+    type: PublicIP
+    value: {{ .address | quote }}
+    {{- with .probeAddress }}
+    probeAddress: {{ . | quote }}
+    {{- end }}
+  gatewayVIP: {{ .gatewayVIP | default .address | quote }}
+  capacityMbps: {{ .capacityMbps | default $.Values.discovery.defaultCapacityMbps }}
+  priority: {{ .priority | default 0 }}
+  {{- with .priorityByRegion }}
+  priorityByRegion: {{ . | toYaml | nindent 4 }}
+  {{- end }}
+  protocols: [https, tls-passthrough]
+  ports: [443]
+  serviceClasses: {{ .serviceClasses | default $.Values.discovery.serviceClasses | toYaml | nindent 4 }}
+  forwarding:
+    mode: RegionalRelay
+    originArea: {{ .originArea | default "CN" | quote }}
+    {{- with .originGatewayVIP }}
+    originGatewayVIP: {{ . | quote }}
+    {{- end }}
+  discovery:
+    source: AmongCluster
+    clusterRef: {{ .clusterRef | quote }}
+    serviceRef: {{ .serviceRef | quote }}
+---
+{{- end }}

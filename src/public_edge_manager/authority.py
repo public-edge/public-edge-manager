@@ -347,6 +347,11 @@ def candidates_from_public_edges(service_definitions=None):
                     r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", probe_host)):
                 continue
             probes[service] = f"https://{probe_host}{definition.get('probePath', '/')}"
+        discovery = spec.get("discovery", {})
+        federated = discovery.get("source") == "AmongCluster"
+        gateway_path = item.get("status", {}).get("gatewayPath", {})
+        protocol_probes = item.get("status", {}).get("protocolProbes", {})
+        transport_observed = bool(gateway_path or protocol_probes)
         candidates.append({
             "id": item["metadata"]["name"],
             "generation": item["metadata"].get("generation", 0),
@@ -361,9 +366,17 @@ def candidates_from_public_edges(service_definitions=None):
             "capacityMbps": spec.get("capacityMbps", 1),
             "priorityByRegion": spec.get("priorityByRegion", {}),
             "forwarding": spec.get("forwarding", {"mode": "DirectGateway"}),
-            "edgeReady": (item.get("status", {}).get("gatewayPath", {}).get("reachable") is True and
-                          all(item.get("status", {}).get("protocolProbes", {}).get(protocol) is True
-                              for protocol in ("http", "https"))),
+            # Locally discovered edges have an independently observed Gateway
+            # and listener contract. A reviewed federated edge instead proves
+            # transport through the same fresh per-service public HTTPS probe
+            # that gates its DNS answer. Once a remote status publisher starts
+            # supplying transport observations, they become authoritative.
+            "edgeReady": ((gateway_path.get("reachable") is True and
+                           all(protocol_probes.get(protocol) is True
+                               for protocol in ("http", "https")))
+                          if transport_observed or not federated else None),
+            "federated": federated,
+            "federation": discovery if federated else {},
             "externalQuality": item.get("status", {}).get("externalQuality", {}),
             "probes": probes,
         })
@@ -509,6 +522,16 @@ def parse_timestamp(value):
 
 def fabric_evidence(candidate, now=None):
     """Evaluate cached evidence without assuming an Advanced Fabric release."""
+    if candidate.get("federated"):
+        federation = candidate.get("federation", {})
+        if (federation.get("source") == "AmongCluster" and
+                federation.get("clusterRef") and federation.get("serviceRef")):
+            return {"eligible": True, "mode": "Federated",
+                    "state": "AmongClusterExport", "reason": "FederatedServiceContract",
+                    "clusterRef": federation["clusterRef"],
+                    "serviceRef": federation["serviceRef"], "pathEvidence": {}}
+        return {"eligible": False, "mode": "Federated", "state": "Invalid",
+                "reason": "FederatedServiceContractMissing", "pathEvidence": {}}
     if FABRIC_EVIDENCE_MODE == "Disabled":
         return {"eligible": True, "mode": "Disabled", "state": "Disabled"}
     with LOCK:
