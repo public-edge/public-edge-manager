@@ -955,8 +955,15 @@ def policy_preference(candidate, area):
     return len(order)
 
 
+def requires_federated_contract(service):
+    return any(definition.get("service") == service and
+               definition.get("requireFederatedContract") is True
+               for definition in SERVICE_DEFINITIONS.values())
+
+
 def ranked(service, request_area=None):
     gate_ready = readiness_gate_ready(service)
+    requires_contract = requires_federated_contract(service)
     with LOCK:
         snapshot = dict(HEALTH.get(service, {}))
     result = []
@@ -984,6 +991,8 @@ def ranked(service, request_area=None):
         ready = bool(edge_ready) and network_evidence["eligible"] and quality_eligible
         if candidate.get("federationEvidence") is not None:
             ready = ready and bool(observed.get("ready")) and fresh_probe
+        if requires_contract and candidate.get("federationEvidence") is None:
+            ready = False
         score = 0
         if ready:
             area = request_area or AREA
@@ -1025,8 +1034,9 @@ def ranked(service, request_area=None):
             "paths": candidate.get("paths", {}).get(service, []),
             "federationBound": candidate.get("federationEvidence") is not None,
             "endpointRevision": candidate.get("endpointRevision"),
-            "contractRejected": candidate.get("federationEvidence") is not None and (
-                not network_evidence["eligible"] or observed.get("endpointRevision") != candidate.get("endpointRevision")),
+            "contractRejected": (requires_contract and candidate.get("federationEvidence") is None) or (
+                candidate.get("federationEvidence") is not None and (
+                not network_evidence["eligible"] or observed.get("endpointRevision") != candidate.get("endpointRevision"))),
             "score": score, "state": "ready" if ready else "unavailable",
             "statusCode": observed.get("statusCode", 0), "latencyMs": observed.get("latencyMs", 0),
             "observedAt": observed.get("observedAt", 0),
@@ -1411,7 +1421,7 @@ def service_address_records(name, service, request_area=None):
                         service in candidate.get("probes", {}) for candidate in CANDIDATES)
             bound = bound or any(key[0] == service and value.get("snapshot", {}).get("federationBound")
                                  for key, value in SELECTIONS.items())
-        if bound:
+        if bound or requires_federated_contract(service):
             return []  # A literal fallback must not resurrect withdrawn ingress.
         selected = default_candidate(request_area or ROUTING_POLICY.get("defaultRegion", "default"))
     if not selected:

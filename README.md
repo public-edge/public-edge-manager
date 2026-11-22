@@ -194,3 +194,9 @@ while HTTP stays healthy and verify authoritative DNS removes it. Record source
 and import revisions, NPA provenance, endpoint revision and DNS answer/TTL. This
 contract does not claim that legacy declarations already follow advertisement
 changes; migrate their references through a reviewed GitOps change.
+
+For a newly bound service, set `requireFederatedContract: true` in its service
+definition before publishing any DNS record. This rejects legacy/unbound
+candidates and disables literal global fallbacks even before the first reference
+refresh, so bootstrap cannot masquerade as verified federation. The default
+remains false for existing services; migrate production definitions explicitly.

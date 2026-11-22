@@ -225,3 +225,16 @@ class FederationTests(unittest.TestCase):
             self.assertEqual(sum("/serviceadvertisements/" in path for path in paths), 1)
             self.assertEqual(sum("/importedservices/" in path for path in paths), 1)
             self.assertEqual(sum("/networkpathassessments/" in path for path in paths), 1)
+
+    def test_opt_in_service_never_publishes_unbound_or_literal_bootstrap_fallback(self):
+        with self.runtime():
+            self.services["canary.example.com."]["requireFederatedContract"] = True
+            with mock.patch.object(authority, "ROUTING_POLICY", {"defaultRegion":"test", "regions":{"test":[{"id":"literal","ip":"192.0.2.99"}]}}):
+                self.assertEqual(authority.service_address_records("canary.example.com.", "canary"), [])
+                authority.refresh_candidates()
+                candidate = self.qualify()
+                self.assertTrue(authority.ranked("canary")[0]["state"] == "ready")
+                candidate["federationEvidence"] = None
+                candidate["federation"] = {"source":"AmongCluster", "clusterRef":"provider", "serviceRef":self.discovery["serviceRef"]}
+                self.assertEqual(authority.ranked("canary")[0]["state"], "unavailable")
+                self.assertEqual(authority.service_address_records("canary.example.com.", "canary"), [])
