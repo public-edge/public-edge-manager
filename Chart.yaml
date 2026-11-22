@@ -2,8 +2,8 @@ apiVersion: v2
 name: public-edge-manager
 description: Region- and capacity-aware PublicEdge health authority for Kubernetes.
 type: application
-version: 0.8.13
-appVersion: "0.8.13"
+version: 0.8.14
+appVersion: "0.8.14"
 keywords: [public-edge, dns, external-dns, gateway-api, cilium, geo-routing]
 maintainers:
   - name: RE8CH Platform
@@ -13,6 +13,10 @@ annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/category: networking
   artifacthub.io/changes: |
+    - kind: fixed
+      description: Reject failed HTTP body reads and bind federated DNS candidates to current endpoint and scoped TLS evidence.
+    - kind: fixed
+      description: Prevent literal defaults and cached health from reviving withdrawn federated endpoints.
     - kind: fixed
       description: Apply declared regional preference to DNS and qualify recovery from a sticky startup fallback.
     - kind: fixed
@@ -110,7 +114,7 @@ annotations:
       url: https://github.com/public-edge/public-edge-manager/issues
   artifacthub.io/images: |
     - name: public-edge-manager
-      image: ghcr.io/public-edge/public-edge-manager:0.8.13
+      image: ghcr.io/public-edge/public-edge-manager:0.8.14
       platforms:
         - linux/amd64
         - linux/arm64
