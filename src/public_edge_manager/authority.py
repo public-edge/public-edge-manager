@@ -587,6 +587,12 @@ def fabric_evidence(candidate, now=None):
         "mode": FABRIC_EVIDENCE_MODE,
         "nodeReady": node_ready if FABRIC_REQUIRE_NODE_READY else None,
         "assessment": item.get("metadata", {}).get("name", ""),
+        "assessmentRef": {
+            **{key: item.get("metadata", {})[key]
+               for key in ("name", "uid", "generation", "resourceVersion")
+               if key in item.get("metadata", {})},
+            "subjectRef": item.get("spec", {}).get("subjectRef", {}),
+        },
         "state": state,
         "reason": reason,
         "observedAt": status.get("observedAt", ""),
@@ -632,6 +638,7 @@ def probe(candidate, service, url):
     started = time.monotonic()
     status = 0
     failure = ""
+    connection = None
     try:
         definition = next(
             (item for item in SERVICE_DEFINITIONS.values() if item["service"] == service),
@@ -657,13 +664,15 @@ def probe(candidate, service, url):
         response = connection.getresponse()
         status = response.status
         response.read(4096)
-        connection.close()
     except Exception as exc:
-        failure = str(exc)
+        failure = str(exc) or type(exc).__name__
+    finally:
+        if connection is not None:
+            connection.close()
     latency = int((time.monotonic() - started) * 1000)
     with LOCK:
         previous = HEALTH[service].get(candidate["id"], {})
-        if accepted_probe_status(service, status):
+        if not failure and accepted_probe_status(service, status):
             successes = previous.get("successes", 0) + 1
             failures = 0
             # A fresh process has no previous observation to preserve. The

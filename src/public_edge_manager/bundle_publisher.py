@@ -45,7 +45,9 @@ def build_payload(now=None):
     items = api(f"/apis/{group}/{version}/{resource}")["items"]
     assessments = {
         item["spec"]["subjectRef"]["name"]: {
-            "metadata": {"name": item["metadata"]["name"]},
+            "metadata": {key: item["metadata"][key]
+                         for key in ("name", "uid", "generation", "resourceVersion")
+                         if key in item["metadata"]},
             "spec": {"subjectRef": item["spec"]["subjectRef"],
                      "scope": item["spec"].get("scope", {})},
             "status": item.get("status", {}),
