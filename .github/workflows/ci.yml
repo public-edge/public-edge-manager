@@ -51,6 +51,7 @@ jobs:
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
       - name: Validate Helm chart
         run: |
+          python -m unittest discover -s tests -p test_chart_placement.py -v
           helm lint .
           helm lint . -f examples/values-example.yaml
           helm lint . -f tests/transfer-topology-values.yaml

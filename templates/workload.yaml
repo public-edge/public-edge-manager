@@ -23,17 +23,19 @@ spec:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
-              - {{- if not .Values.workload.nodeNames }}
-                matchExpressions:
+              {{- if .Values.workload.nodeNames }}
+              {{- range .Values.workload.nodeNames }}
+              - matchFields:
+                  - key: metadata.name
+                    operator: In
+                    values: [{{ . | quote }}]
+              {{- end }}
+              {{- else }}
+              - matchExpressions:
                   - key: {{ .Values.discovery.authorityLabel }}
                     operator: In
                     values: ["true"]
-                {{- else }}
-                matchFields:
-                  - key: metadata.name
-                    operator: In
-                    values: {{ .Values.workload.nodeNames | toYaml | nindent 22 }}
-                {{- end }}
+              {{- end }}
       {{- with .Values.workload.tolerations }}
       tolerations: {{ . | toYaml | nindent 8 }}
       {{- end }}

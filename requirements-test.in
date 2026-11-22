@@ -3,3 +3,5 @@
 pytest==8.4.2
 setuptools>=77
 wheel>=0.45
+
+PyYAML==6.0.3
