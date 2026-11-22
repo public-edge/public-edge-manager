@@ -326,6 +326,15 @@ def candidates_from_public_edges(service_definitions=None):
     if payload is None:
         return None
     candidates = []
+    federation_objects = {}
+
+    def federation_get(path):
+        # Site candidates often share an owner advertisement/import. One refresh
+        # reads each object once, so all decisions use the same observed revision.
+        if path not in federation_objects:
+            federation_objects[path] = kubernetes_get(path)
+        return federation_objects[path]
+
     for item in payload.get("items", []):
         spec = item.get("spec", {})
         endpoint = spec.get("endpoint", {})
@@ -352,14 +361,14 @@ def candidates_from_public_edges(service_definitions=None):
         federated = discovery.get("source") == "AmongCluster"
         federation_evidence = None
         if federated and ("advertisementRef" in discovery or "importedServiceRef" in discovery):
-            federation_evidence = resolve_federation(discovery, kubernetes_get, time.time())
+            federation_evidence = resolve_federation(discovery, federation_get, time.time())
             if federation_evidence["eligible"]:
                 ingress = federation_evidence["publicIngress"]
                 endpoint = {**endpoint, "type": "PublicIP", "value": ingress["address"], "probeAddress": ingress["address"]}
                 probes = {definition["service"]: f"https://{ingress['hostname']}:{ingress['port']}{ingress['path']}"
                           for hostname, definition in (SERVICE_DEFINITIONS if service_definitions is None else service_definitions).items()
                           if hostname.rstrip(".") == ingress["hostname"]}
-        service_evidence = (service_assessment(discovery, federation_evidence, kubernetes_get,
+        service_evidence = (service_assessment(discovery, federation_evidence, federation_get,
                                               FABRIC_EVIDENCE_API_GROUP, FABRIC_EVIDENCE_API_VERSION, NODE)
                             if federation_evidence is not None and federation_evidence["eligible"] else None)
         gateway_path = item.get("status", {}).get("gatewayPath", {})

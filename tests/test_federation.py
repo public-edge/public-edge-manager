@@ -213,3 +213,15 @@ class FederationTests(unittest.TestCase):
             authority.refresh_candidates()
             self.assertFalse(authority.fabric_evidence(authority.CANDIDATES[0])["eligible"])
             self.assertEqual(authority.CANDIDATES[0]["federationEvidence"]["reason"], "FederationEndpointMissing")
+
+    def test_site_candidates_share_one_consistent_ad_import_read_per_refresh(self):
+        with self.runtime():
+            second = copy.deepcopy(self.edge)
+            second["metadata"]["name"] = "canary-edge-copy"
+            with mock.patch.object(authority, "kubernetes_get", side_effect=lambda path: {"items": [self.edge, second]} if path.endswith("/publicedges") else self.get(path)) as getter:
+                candidates = authority.candidates_from_public_edges()
+            self.assertEqual(len(candidates), 2)
+            paths = [call.args[0] for call in getter.call_args_list]
+            self.assertEqual(sum("/serviceadvertisements/" in path for path in paths), 1)
+            self.assertEqual(sum("/importedservices/" in path for path in paths), 1)
+            self.assertEqual(sum("/networkpathassessments/" in path for path in paths), 1)
