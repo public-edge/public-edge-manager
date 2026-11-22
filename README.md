@@ -44,7 +44,7 @@ cp examples/values-example.yaml values-production.yaml
 
 helm install public-edge-manager \
   oci://ghcr.io/public-edge/charts/public-edge-manager \
-  --version 0.8.12 \
+  --version 0.8.13 \
   --namespace public-edge-system --create-namespace \
   --values values-production.yaml
 ```
@@ -94,6 +94,11 @@ network evidence, external measurements, or DNS-provider publication:
 These integrations are not all required. Read the
 [dependency and responsibility map](docs/DEPENDENCIES.md) before choosing a
 deployment shape.
+
+Explicit `routingPolicy.regions` order takes precedence over measurement scores.
+A healthy fallback returns to a recovered preferred entry only after the
+configured candidate ready and hold windows. Score changes alone keep a healthy
+selection stable when there is no stronger explicit policy preference.
 
 ## Scenario simulation
 
