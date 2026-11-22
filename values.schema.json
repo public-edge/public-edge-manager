@@ -2,6 +2,21 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
+    "federation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "readableNamespaces": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+            "maxLength": 63
+          }
+        }
+      }
+    },
     "enabled": { "type": "boolean" },
     "runtime": {
       "type": "object",

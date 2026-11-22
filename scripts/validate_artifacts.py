@@ -34,7 +34,12 @@ def validate(requested_version: str | None = None) -> dict[str, object]:
 
     chart_version, app_version = chart_versions()
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
-    versions = {chart_version, app_version, project["version"]}
+    default_image = re.search(r'^  tag:\s*["\']?([^\s"\']+)', (ROOT / "values.yaml").read_text(), re.MULTILINE)
+    runtime_version = re.search(r'^__version__\s*=\s*["\']([^"\']+)',
+                               (ROOT / "src/public_edge_manager/__init__.py").read_text(), re.MULTILINE)
+    if not default_image or not runtime_version:
+        fail("default runtime image and package version must be explicit")
+    versions = {chart_version, app_version, project["version"], default_image.group(1), runtime_version.group(1)}
     if len(versions) != 1:
         fail(f"release versions disagree: {sorted(versions)}")
     version = versions.pop()
