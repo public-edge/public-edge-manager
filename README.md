@@ -180,7 +180,10 @@ The subject must match the advertised Service identity and the full scope must
 match endpoint, port, TLS SNI, path and expected size array (including >=2048-byte
 padding). Both host/pod transfer completeness and latency-budget evidence must be
 fresh and successful. Node readiness alone never substitutes for that evidence.
-No missing-source fallback or cross-node borrowing is allowed.
+No missing-source fallback or cross-node borrowing is allowed. An optional
+`expectedConfigurationDigest` on each assessment reference strictly binds the
+producer-owned `scope.targetConfigurationDigest`; the consumer records the full
+scope and does not duplicate the producer's digest algorithm.
 
 Controlled acceptance uses an isolated hostname: keep endpoint A healthy while
 advertising B, prove B is independently probed, then revoke or expire the source

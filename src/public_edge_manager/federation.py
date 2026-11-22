@@ -115,6 +115,10 @@ def assess_service(discovery, decision, item, now, source_node):
             (scope.get("endpoint"), scope.get("port"), scope.get("serverName"), scope.get("path")) !=
             (ingress.get("address"), ingress.get("port"), ingress.get("hostname"), ingress.get("path"))):
         return rejected
+    expected_digest = ref.get("expectedConfigurationDigest")
+    if expected_digest is not None and (not isinstance(expected_digest, str) or not expected_digest or
+                                         scope.get("targetConfigurationDigest") != expected_digest):
+        return {**rejected, "reason": "ServiceConfigurationDigestMismatch"}
     observed, valid = timestamp(status.get("observedAt")), timestamp(status.get("validUntil"))
     condition = next((value for value in status.get("conditions", []) if value.get("type") == "EvidenceReady"), {})
     service = status.get("serviceEvidence", {})

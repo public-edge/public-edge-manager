@@ -158,3 +158,17 @@ class FederationTests(unittest.TestCase):
             self.discovery["assessmentRefs"]["consumer-node"] = ref
             authority.refresh_candidates()
             self.assertTrue(authority.fabric_evidence(authority.CANDIDATES[0])["eligible"])
+
+    def test_optional_configuration_digest_is_strict_when_bound(self):
+        with self.runtime():
+            self.discovery["assessmentRef"]["expectedConfigurationDigest"] = "sha256-reviewed"
+            authority.refresh_candidates()
+            self.assertFalse(authority.fabric_evidence(authority.CANDIDATES[0])["eligible"])
+            self.npa["spec"]["scope"]["targetConfigurationDigest"] = "different-path-config"
+            authority.refresh_candidates()
+            self.assertFalse(authority.fabric_evidence(authority.CANDIDATES[0])["eligible"])
+            self.npa["spec"]["scope"]["targetConfigurationDigest"] = "sha256-reviewed"
+            authority.refresh_candidates()
+            decision = authority.fabric_evidence(authority.CANDIDATES[0])
+            self.assertTrue(decision["eligible"])
+            self.assertEqual(decision["assessmentRef"]["scope"]["targetConfigurationDigest"], "sha256-reviewed")
