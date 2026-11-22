@@ -149,7 +149,8 @@ for signed release manifests and immutable package identities.
 
 Existing federated declarations remain compatible. To consume a reviewed
 `ServiceAdvertisement.publicIngress` dynamically, set both exact references in
-`PublicEdge.spec.discovery`, alongside `source: AmongCluster`, `clusterRef`
+`PublicEdge.spec.discovery`, alongside `source: AmongCluster`, `endpointId`
+(the stable ID selected from `publicIngress.endpoints`), `clusterRef`
 (the publisher), `serviceRef` (the exact SPIFFE service identity), and `protocol`:
 
 ```yaml
@@ -163,7 +164,9 @@ is added. The consumer validates object UIDs, publisher/identity/protocol,
 publication TTL, revocation, targeted peer and the import's observed revision.
 It never turns an AmongCluster QUIC gateway endpoint into an HTTPS endpoint.
 
-A valid typed `publicIngress` updates candidate address, TLS SNI, port and probe
+One real Service identity/publisher can export several site endpoints without
+creating fake per-site Services. Endpoint list reordering does not change selection;
+removing the selected ID rejects it. A valid typed selected endpoint updates candidate address, TLS SNI, port and probe
 path. Only the matching service hostname is exposed. Changed endpoints clear
 old health; an in-flight response for an earlier endpoint revision cannot qualify
 the replacement. Revocation, expiry, missing references and stale import state

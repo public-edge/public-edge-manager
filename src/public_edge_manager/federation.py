@@ -54,7 +54,19 @@ def resolve(discovery, get, now):
             istatus.get("advertisementGeneration") != meta.get("generation") or
             istatus.get("observedGeneration") != imeta.get("generation")):
         return {**decision, "reason": "FederationImportNotObserved"}
-    ingress = spec.get("publicIngress", {})
+    export = spec.get("publicIngress", {})
+    endpoints = export.get("endpoints", []) if isinstance(export, dict) else []
+    endpoint_id = discovery.get("endpointId")
+    if (not isinstance(endpoints, list) or not 1 <= len(endpoints) <= 32 or
+            not isinstance(endpoint_id, str) or not endpoint_id or
+            any(not isinstance(value, dict) or not isinstance(value.get("id"), str) or not value["id"] for value in endpoints)):
+        return {**decision, "reason": "FederationEndpointInvalid"}
+    ids = [value["id"] for value in endpoints]
+    if len(set(ids)) != len(ids) or endpoint_id not in ids:
+        return {**decision, "reason": "FederationEndpointMissing"}
+    if istatus.get("publicIngress") != export:
+        return {**decision, "reason": "FederationIngressNotObserved"}
+    ingress = next(value for value in endpoints if value["id"] == endpoint_id)
     try:
         address = ipaddress.ip_address(ingress["address"])
         port = ingress["port"]
@@ -64,13 +76,14 @@ def resolve(discovery, get, now):
                 not re.fullmatch(r"(?:[A-Za-z0-9](?:[-A-Za-z0-9]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[-A-Za-z0-9]{0,61}[A-Za-z0-9])?", ingress["hostname"]) or
                 len(ingress["hostname"]) > 253 or not ingress["path"].startswith("/") or
                 ingress["path"].startswith("//") or len(ingress["path"]) > 2048 or
-                not ingress["revision"] or len(ingress["revision"]) > 128 or
-                istatus.get("publicIngress") != ingress):
+                not isinstance(ingress["site"], str) or not 1 <= len(ingress["site"]) <= 63 or
+                not isinstance(ingress["region"], str) or not 1 <= len(ingress["region"]) <= 63 or
+                not ingress["revision"] or len(ingress["revision"]) > 128):
             raise ValueError("invalid ingress")
     except (KeyError, TypeError, ValueError):
         return {**decision, "reason": "FederationIngressInvalid"}
     return {**decision, "eligible": True, "reason": "FederationObserved",
-            "publicIngress": ingress, "serviceIdentity": spec["serviceIdentity"],
+            "publicIngress": ingress, "endpointId": endpoint_id, "serviceIdentity": spec["serviceIdentity"],
             "publisherRef": spec["publisherRef"]}
 
 

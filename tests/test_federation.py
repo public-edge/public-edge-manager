@@ -12,16 +12,17 @@ from public_edge_manager.federation import resolve
 
 class FederationTests(unittest.TestCase):
     def setUp(self):
-        self.discovery = {"source": "AmongCluster", "clusterRef": "provider", "serviceRef": "spiffe://provider.example/ns/apps/service/canary", "protocol": "https",
+        self.discovery = {"source": "AmongCluster", "clusterRef": "provider", "serviceRef": "spiffe://provider.example/ns/apps/service/canary", "protocol": "https", "endpointId": "site-a",
                           "assessmentRef": {"name": "service-canary", "uid": "npa-uid", "sourceNode": "consumer-node", "targetId": "canary-path", "paddingBytes": [0, 2048]},
                           "advertisementRef": {"namespace": "peering", "name": "canary", "uid": "ad-uid"},
                           "importedServiceRef": {"namespace": "peering", "name": "canary-import", "uid": "import-uid"}}
-        ingress = {"protocol": "https", "address": "192.0.2.10", "port": 8443, "hostname": "canary.example.com", "path": "/health", "revision": "reviewed-1"}
+        ingress = {"id":"site-a", "site":"site-a", "region":"test-region", "protocol": "https", "address": "192.0.2.10", "port": 8443, "hostname": "canary.example.com", "path": "/health", "revision": "reviewed-1"}
         self.ad = {"metadata": {"name": "canary", "uid": "ad-uid", "generation": 1, "resourceVersion": "10", "annotations": {"peering.re8ch.com/last-published-at": "1970-01-01T00:16:40Z"}},
-                   "spec": {"publisherRef": "provider", "serviceIdentity": self.discovery["serviceRef"], "protocol": "https", "targetPeers": ["provider-consumer"], "ttlSeconds": 60, "publicIngress": ingress}}
+                   "spec": {"publisherRef": "provider", "serviceIdentity": self.discovery["serviceRef"], "protocol": "https", "targetPeers": ["provider-consumer"], "ttlSeconds": 60, "publicIngress": {"endpoints":[ingress]}}}
         self.imported = {"metadata": {"name": "canary-import", "uid": "import-uid", "generation": 1, "resourceVersion": "20"},
                          "spec": {"advertisementRef": "canary", "peerRef": "provider-consumer"},
-                         "status": {"state": "Ready", "observedGeneration": 1, "advertisementUID": "ad-uid", "advertisementGeneration": 1, "publicIngress": copy.deepcopy(ingress)}}
+                         "status": {"state": "Ready", "observedGeneration": 1, "advertisementUID": "ad-uid", "advertisementGeneration": 1, "publicIngress": {"endpoints":[copy.deepcopy(ingress)]}}}
+        self.endpoint = self.ad["spec"]["publicIngress"]["endpoints"][0]
         self.edge = {"metadata": {"name": "canary-edge", "generation": 1}, "spec": {"enabled": True, "nodeName": "path-subject", "serviceClasses": ["web"], "region": "test-region", "gatewayVIP": "192.0.2.1", "endpoint": {"type": "PublicIP", "value": "192.0.2.5"}, "discovery": self.discovery}}
         self.services = {"canary.example.com.": {"service": "canary", "class": "web"}}
         self.npa = {"metadata": {"name": "service-canary", "uid": "npa-uid", "generation": 2, "resourceVersion": "30"},
@@ -53,7 +54,7 @@ class FederationTests(unittest.TestCase):
             target[key] = value
             self.assertFalse(resolve(self.discovery, self.get, 1001)["eligible"])
             target[key] = old
-        self.ad["spec"]["publicIngress"]["protocol"] = "quic"
+        self.endpoint["protocol"] = "quic"
         self.assertFalse(resolve(self.discovery, self.get, 1001)["eligible"])
 
     def runtime(self):
@@ -80,8 +81,8 @@ class FederationTests(unittest.TestCase):
             old = self.qualify()
             self.assertEqual(authority.ranked("canary")[0]["state"], "ready")
             self.assertEqual(authority.stable_selected("canary", authority.ranked("canary"))["ip"], "192.0.2.10")
-            self.ad["spec"]["publicIngress"]["address"] = "192.0.2.11"
-            self.ad["spec"]["publicIngress"]["revision"] = "reviewed-2"
+            self.endpoint["address"] = "192.0.2.11"
+            self.endpoint["revision"] = "reviewed-2"
             self.imported["status"]["publicIngress"] = copy.deepcopy(self.ad["spec"]["publicIngress"])
             authority.refresh_candidates()
             self.assertEqual(authority.CANDIDATES[0]["ip"], "192.0.2.11")
@@ -114,8 +115,8 @@ class FederationTests(unittest.TestCase):
             self.assertFalse(authority.fabric_evidence(candidate, now=1060)["eligible"])
 
     def test_import_must_observe_changed_endpoint_before_it_is_used(self):
-        self.ad["spec"]["publicIngress"]["address"] = "192.0.2.11"
-        self.assertEqual(resolve(self.discovery, self.get, 1001)["reason"], "FederationIngressInvalid")
+        self.endpoint["address"] = "192.0.2.11"
+        self.assertEqual(resolve(self.discovery, self.get, 1001)["reason"], "FederationIngressNotObserved")
 
     def test_authoritative_dns_tracks_new_endpoint_and_withdrawal(self):
         query = struct.pack("!HHHHHH", 7, 0x0100, 1, 0, 0, 0) + authority.encode_name("canary.example.com.") + struct.pack("!HH", 1, 1)
@@ -124,7 +125,7 @@ class FederationTests(unittest.TestCase):
             self.qualify()
             response = authority.dns_response(query)
             self.assertIn(socket.inet_aton("192.0.2.10"), response)
-            self.ad["spec"]["publicIngress"]["address"] = "192.0.2.11"
+            self.endpoint["address"] = "192.0.2.11"
             self.imported["status"]["publicIngress"] = copy.deepcopy(self.ad["spec"]["publicIngress"])
             authority.refresh_candidates()
             response = authority.dns_response(query)
@@ -172,3 +173,43 @@ class FederationTests(unittest.TestCase):
             decision = authority.fabric_evidence(authority.CANDIDATES[0])
             self.assertTrue(decision["eligible"])
             self.assertEqual(decision["assessmentRef"]["scope"]["targetConfigurationDigest"], "sha256-reviewed")
+
+    def test_inflight_old_probe_cannot_overwrite_new_endpoint_health(self):
+        with self.runtime():
+            authority.refresh_candidates()
+            old = copy.deepcopy(self.qualify())
+            self.endpoint["address"] = "192.0.2.11"
+            self.imported["status"]["publicIngress"] = copy.deepcopy(self.ad["spec"]["publicIngress"])
+            self.npa["spec"]["scope"]["endpoint"] = "192.0.2.11"
+            authority.refresh_candidates()
+            self.qualify()
+            current = copy.deepcopy(authority.HEALTH["canary"]["canary-edge"])
+            connection = mock.Mock()
+            connection.getresponse.return_value = mock.Mock(status=200)
+            with mock.patch.object(authority.socket, "create_connection"), \
+                 mock.patch.object(authority.ssl, "create_default_context"), \
+                 mock.patch.object(authority.http.client, "HTTPConnection", return_value=connection):
+                authority.probe(old, "canary", "https://canary.example.com:8443/health")
+            self.assertEqual(authority.HEALTH["canary"]["canary-edge"], current)
+
+    def test_multiple_endpoints_add_remove_reorder_and_revision(self):
+        with self.runtime():
+            authority.refresh_candidates()
+            original = self.qualify()["endpointRevision"]
+            other = {**self.endpoint, "id": "site-b", "site": "site-b", "region": "region-b", "address": "192.0.2.22"}
+            self.ad["spec"]["publicIngress"]["endpoints"].append(other)
+            self.ad["spec"]["publicIngress"]["endpoints"].reverse()
+            self.imported["status"]["publicIngress"] = copy.deepcopy(self.ad["spec"]["publicIngress"])
+            authority.refresh_candidates()
+            self.assertEqual(authority.CANDIDATES[0]["ip"], "192.0.2.10")
+            self.assertEqual(authority.CANDIDATES[0]["endpointRevision"], original)
+            self.assertIn("canary-edge", authority.HEALTH["canary"])
+            self.endpoint["revision"] = "reviewed-2"
+            self.imported["status"]["publicIngress"] = copy.deepcopy(self.ad["spec"]["publicIngress"])
+            authority.refresh_candidates()
+            self.assertNotIn("canary-edge", authority.HEALTH["canary"])
+            self.ad["spec"]["publicIngress"]["endpoints"] = [other]
+            self.imported["status"]["publicIngress"] = copy.deepcopy(self.ad["spec"]["publicIngress"])
+            authority.refresh_candidates()
+            self.assertFalse(authority.fabric_evidence(authority.CANDIDATES[0])["eligible"])
+            self.assertEqual(authority.CANDIDATES[0]["federationEvidence"]["reason"], "FederationEndpointMissing")

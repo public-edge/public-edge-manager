@@ -369,7 +369,8 @@ def candidates_from_public_edges(service_definitions=None):
             "id": item["metadata"]["name"],
             "generation": item["metadata"].get("generation", 0),
             "nodeName": spec.get("nodeName", ""),
-            "region": spec["region"],
+            "region": (federation_evidence["publicIngress"]["region"] if federation_evidence is not None and federation_evidence["eligible"] else spec["region"]),
+            "site": (federation_evidence["publicIngress"]["site"] if federation_evidence is not None and federation_evidence["eligible"] else None),
             "area": spec.get("area", spec["region"]),
             "ip": endpoint["value"],
             "probeIp": endpoint.get("probeAddress", endpoint["value"]),
@@ -414,7 +415,7 @@ def refresh_candidates():
         previous = {candidate["id"]: candidate for candidate in CANDIDATES}
         for candidate in discovered or []:
             old = previous.get(candidate["id"])
-            if old and (old.get("ip"), old.get("probeIp"), old.get("probes")) != (candidate.get("ip"), candidate.get("probeIp"), candidate.get("probes")):
+            if old and (old.get("ip"), old.get("probeIp"), old.get("probes"), old.get("endpointRevision")) != (candidate.get("ip"), candidate.get("probeIp"), candidate.get("probes"), candidate.get("endpointRevision")):
                 for observations in HEALTH.values():
                     observations.pop(candidate["id"], None)
         CANDIDATES[:] = discovered or []
@@ -706,6 +707,10 @@ def probe(candidate, service, url):
             connection.close()
     latency = int((time.monotonic() - started) * 1000)
     with LOCK:
+        if candidate.get("endpointRevision") is not None:
+            current = next((item for item in CANDIDATES if item["id"] == candidate["id"]), None)
+            if current is None or current.get("endpointRevision") != candidate["endpointRevision"]:
+                return  # A superseded in-flight probe cannot overwrite current health.
         previous = HEALTH[service].get(candidate["id"], {})
         if not failure and accepted_probe_status(service, status):
             successes = previous.get("successes", 0) + 1
