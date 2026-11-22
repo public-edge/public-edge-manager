@@ -116,6 +116,9 @@ class GlobalpingObserverTests(unittest.TestCase):
                 mock.patch.object(observer, "EXTRA_AUTHORITIES", ["192.0.2.53"]):
             document = observer.observe_once()
         self.assertEqual(measure.call_count, 3)
+        dns_calls = [call for call in measure.call_args_list if call.args[0] == "dns"]
+        self.assertEqual(len(dns_calls), 2)
+        self.assertTrue(all(call.args[2]["resolver"] == "192.0.2.53" for call in dns_calls))
         self.assertEqual(len(document["candidates"]), 8)
         self.assertEqual(sum(
             1 for item in document["candidates"].values()
