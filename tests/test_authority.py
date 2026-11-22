@@ -628,6 +628,42 @@ class AuthorityTests(unittest.TestCase):
         self.assertTrue(authority.HEALTH["app"]["edge-a"]["ready"])
         self.assertEqual(authority.HEALTH["app"]["edge-a"]["successes"], 1)
 
+    def test_fabric_decision_preserves_assessment_revision_and_subject(self):
+        item = {"metadata": {"name": "node-edge", "uid": "assessment-uid",
+                              "generation": 3, "resourceVersion": "42"},
+                "spec": {"subjectRef": {"kind": "Node", "name": "edge-node"}},
+                "status": {"state": "Ready", "validUntil": "2100-01-01T00:00:00Z",
+                           "conditions": [{"type": "EvidenceReady", "status": "True"}],
+                           "pathEvidence": {"currentPathMeasured": True, "reachable": True}}}
+        with mock.patch.object(authority, "FABRIC_EVIDENCE_MODE", "Required"), \
+             mock.patch.object(authority, "FABRIC_REQUIRE_NODE_READY", False), \
+             mock.patch.object(authority, "FABRIC_API_AVAILABLE", True), \
+             mock.patch.object(authority, "FABRIC_ASSESSMENTS", {"edge-node": item}):
+            result = authority.fabric_evidence({"nodeName": "edge-node"})
+        self.assertTrue(result["eligible"])
+        self.assertEqual(result["assessmentRef"], {
+            **item["metadata"], "subjectRef": item["spec"]["subjectRef"]})
+
+    def test_body_read_failure_rejects_accepted_headers(self):
+        candidate = {"id": "edge-a", "ip": "192.0.2.10"}
+        for previous in ({}, {"ready": True, "successes": 4, "failures": 0}):
+            with self.subTest(previous=previous):
+                authority.HEALTH["app"]["edge-a"] = previous
+                response = mock.Mock(status=200)
+                response.read.side_effect = TimeoutError("response body stalled")
+                connection = mock.Mock()
+                connection.getresponse.return_value = response
+                with mock.patch.object(authority.socket, "create_connection"), \
+                     mock.patch.object(authority.ssl, "create_default_context"), \
+                     mock.patch.object(authority.http.client, "HTTPConnection", return_value=connection):
+                    authority.probe(candidate, "app", "https://app.example.com/healthz")
+                observed = authority.HEALTH["app"]["edge-a"]
+                self.assertFalse(observed["ready"])
+                self.assertEqual(observed["statusCode"], 200)
+                self.assertEqual(observed["successes"], 0)
+                self.assertEqual(observed["failure"], "response body stalled")
+                response.read.assert_called_once_with(4096)
+
     def test_explicit_http_failure_withdraws_ready_edge_immediately(self):
         candidate = {"id": "edge-a", "ip": "192.0.2.10"}
         authority.HEALTH["app"]["edge-a"] = {
