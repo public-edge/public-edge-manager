@@ -218,7 +218,7 @@ def observe_once():
         measurements += 1
         candidate_results[edge["name"]]["ping"] = result
     authority_addresses = list(dict.fromkeys(
-        [edge["address"] for edge in edges] + [str(value) for value in EXTRA_AUTHORITIES]
+        [str(value) for value in EXTRA_AUTHORITIES] + [edge["address"] for edge in edges]
     ))[:MAX_TARGETS]
     dns_results = {}
     for address in authority_addresses[:per_kind]:
