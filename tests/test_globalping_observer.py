@@ -86,7 +86,14 @@ class GlobalpingObserverTests(unittest.TestCase):
         self.assertEqual(set(document), {"provider", "observedAt", "locations",
                                          "candidates", "authorities", "services"})
         self.assertEqual(len(document["candidates"]), 1)
-        self.assertEqual(len(document["authorities"]), 2)
+        self.assertEqual(len(document["authorities"]), 4)
+        self.assertEqual(
+            set(document["authorities"]),
+            {
+                "192.0.2.10/example.com/udp", "192.0.2.10/example.com/tcp",
+                "192.0.2.53/example.com/udp", "192.0.2.53/example.com/tcp",
+            },
+        )
         self.assertIn("api.example.com", document["services"])
         publish_configmap.assert_called_once()
         publish_edge_quality.assert_called_once()
@@ -113,8 +120,8 @@ class GlobalpingObserverTests(unittest.TestCase):
         self.assertEqual(sum(
             1 for item in document["candidates"].values()
             if item["ping"].get("measurementId") == "m"), 1)
-        self.assertEqual(len(document["authorities"]), 1)
-        self.assertEqual(len(document["services"]), 1)
+        self.assertEqual(len(document["authorities"]), 2)
+        self.assertEqual(len(document["services"]), 0)
 
 
 if __name__ == "__main__":
