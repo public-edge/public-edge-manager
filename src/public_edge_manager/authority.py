@@ -885,6 +885,17 @@ def default_candidate(request_area):
     return None
 
 
+def policy_preference(candidate, area):
+    """Explicit regional order is stronger than fluctuating measurement scores."""
+    order = ROUTING_POLICY.get("regions", {}).get(area, [])
+    for index, entry in enumerate(order):
+        entry = {"id": entry} if isinstance(entry, str) else entry
+        if (entry.get("id") == candidate.get("id") or
+                (entry.get("ip") and entry["ip"] == candidate.get("ip"))):
+            return index
+    return len(order)
+
+
 def ranked(service, request_area=None):
     gate_ready = readiness_gate_ready(service)
     with LOCK:
@@ -964,13 +975,18 @@ def ranked(service, request_area=None):
                        observed.get("failure", "") if gate_ready else
                        "configured readiness gate is not satisfied"),
         })
-    return stable_rank(result)
+    ordered = stable_rank(result)
+    if ROUTING_POLICY.get("regions", {}).get(request_area or AREA):
+        ordered.sort(key=lambda item: (item["state"] != "ready",
+                                      policy_preference(item, request_area or AREA)))
+    return ordered
 
 
 def stable_selected(service, candidates, request_area=None, timestamp=None):
     """Return a sticky last-known-good candidate with qualified failover.
 
-    Ranking changes never move a healthy selection. A failed selection remains
+    Measurement score changes never move a healthy selection. Explicit policy
+    preference can restore a recovered primary after the ready and hold windows. A failed selection remains
     the last-known-good answer during the grace and replacement qualification
     windows. This keeps DNS and provider publication on the same stable target.
     """
@@ -1002,8 +1018,18 @@ def stable_selected(service, candidates, request_area=None, timestamp=None):
         current = by_id.get(state["selected"])
         if (current and current["state"] == "ready"
                 and current.get("serviceBackendReady", True)):
-            state.update(snapshot=dict(current), unavailableAt=None, pending=None,
-                         pendingAt=None, hardFailure=False)
+            state.update(snapshot=dict(current), unavailableAt=None, hardFailure=False)
+            preferred = min(ready, key=lambda item: policy_preference(item, area))
+            if policy_preference(preferred, area) < policy_preference(current, area):
+                if state["pending"] != preferred["id"]:
+                    state.update(pending=preferred["id"], pendingAt=timestamp)
+                if (timestamp - state["pendingAt"] >= CANDIDATE_MIN_READY_SECONDS and
+                        timestamp - state["selectedAt"] >= CANDIDATE_MIN_HOLD_SECONDS):
+                    state.update(selected=preferred["id"], snapshot=dict(preferred),
+                                 selectedAt=timestamp, pending=None, pendingAt=None)
+                    return dict(preferred)
+            else:
+                state.update(pending=None, pendingAt=None)
             return dict(current)
 
         # Prefer a healthy replacement immediately. If every probe has a
