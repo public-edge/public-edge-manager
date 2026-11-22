@@ -71,6 +71,8 @@ spec:
             - {name: REQUIRED_ADDRESS_NAMES_JSON, value: {{ .Values.discovery.requiredAddressNames | toJson | quote }}}
             - {name: SECONDARY_NAMESERVERS_BY_ZONE_JSON, value: {{ .Values.discovery.secondaryNameserversByZone | toJson | quote }}}
             - {name: EXTERNAL_AUTHORITIES_JSON, value: {{ .Values.discovery.externalAuthorities | toJson | quote }}}
+            - {name: EXTERNAL_AUTHORITY_EVIDENCE_CONFIGMAP, value: {{ .Values.discovery.externalAuthorityEvidenceConfigMap | quote }}}
+            - {name: EXTERNAL_AUTHORITY_EVIDENCE_MAX_AGE_SECONDS, value: {{ .Values.discovery.externalAuthorityEvidenceMaxAgeSeconds | quote }}}
             - {name: NAMESERVER_CONFIGMAP, value: {{ .Values.dns.nameserversConfigMap | quote }}}
             {{- with .Values.discovery.cloudflareSecretRef }}
             - {name: CF_SECRET_NAMESPACE, value: {{ .namespace | quote }}}

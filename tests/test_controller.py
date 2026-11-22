@@ -167,6 +167,23 @@ class ControllerTests(unittest.TestCase):
             external["address"] = "192.168.88.1"
             with self.assertRaises(ValueError):
                 controller.external_authority_candidate(external)
+
+    def test_external_authority_accepts_fresh_independent_evidence(self):
+        external = {"id": "routeros-r640", "address": "8.8.8.8",
+                    "nameserver": "ns-routeros.example.com.", "region": "cn",
+                    "capacityMbps": 1000, "enabled": True}
+        evidence = {
+            "8.8.8.8/service.example.com/udp": {"ready": True},
+            "8.8.8.8/service.example.com/tcp": {"ready": True},
+        }
+        with mock.patch.object(controller, "PARENT_ZONE", "example.com"), \
+             mock.patch.object(controller, "CHILD_ZONES", ["api.example.com"]), \
+             mock.patch.object(controller, "dns_transport_ready") as query:
+            candidate = controller.external_authority_candidate(external, evidence)
+            self.assertEqual(candidate["uid"], "external:routeros-r640")
+            query.assert_not_called()
+            evidence["8.8.8.8/service.example.com/tcp"]["ready"] = False
+            self.assertIsNone(controller.external_authority_candidate(external, evidence))
     def test_dns_authority_requires_service_address_answers(self):
         with mock.patch.object(controller, "PARENT_ZONE", "example.com"), \
              mock.patch.object(controller, "CHILD_ZONES", ["api.example.com"]), \

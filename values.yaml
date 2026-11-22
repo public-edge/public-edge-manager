@@ -63,6 +63,8 @@ discovery:
   secondaryNameserversByZone: {}
   # Optional authorities outside Kubernetes, qualified by public UDP/TCP probes.
   externalAuthorities: []
+  externalAuthorityEvidenceConfigMap: ""
+  externalAuthorityEvidenceMaxAgeSeconds: 2700
   cloudflareSecretRef: {}
 
 runtime:

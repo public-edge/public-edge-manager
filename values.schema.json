@@ -109,6 +109,8 @@
             }
           }
         },
+        "externalAuthorityEvidenceConfigMap": {"type": "string"},
+        "externalAuthorityEvidenceMaxAgeSeconds": {"type": "integer", "minimum": 60},
         "cloudflareSecretRef": {
           "type": "object",
           "properties": {

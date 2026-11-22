@@ -223,13 +223,14 @@ def observe_once():
     dns_results = {}
     for address in authority_addresses[:per_kind]:
         for target in DNS_TARGETS[:1]:
-            if measurements >= MAX_MEASUREMENTS:
-                break
-            key = f"{address}/{target}"
-            dns_results[key] = measure("dns", target, {
-                "resolver": address, "protocol": "UDP", "query": {"type": "SOA"},
-            })
-            measurements += 1
+            for protocol in ("UDP", "TCP"):
+                if measurements >= MAX_MEASUREMENTS:
+                    break
+                key = f"{address}/{target}/{protocol.lower()}"
+                dns_results[key] = measure("dns", target, {
+                    "resolver": address, "protocol": protocol, "query": {"type": "SOA"},
+                })
+                measurements += 1
     http_results = {}
     for target in HTTP_TARGETS[:per_kind]:
         if measurements >= MAX_MEASUREMENTS:

@@ -60,6 +60,9 @@ SECONDARY_NAMESERVERS_BY_ZONE = {
     for zone, names in json.loads(os.getenv("SECONDARY_NAMESERVERS_BY_ZONE_JSON", "{}")).items()
 }
 EXTERNAL_AUTHORITIES = json.loads(os.getenv("EXTERNAL_AUTHORITIES_JSON", "[]"))
+EXTERNAL_AUTHORITY_EVIDENCE_CONFIGMAP = os.getenv("EXTERNAL_AUTHORITY_EVIDENCE_CONFIGMAP", "")
+EXTERNAL_AUTHORITY_EVIDENCE_MAX_AGE = max(60, int(
+    os.getenv("EXTERNAL_AUTHORITY_EVIDENCE_MAX_AGE_SECONDS", "900")))
 CF_TOKEN = os.getenv("CF_API_TOKEN", "")
 CF_SECRET_NAMESPACE = os.getenv("CF_SECRET_NAMESPACE", "")
 CF_SECRET_NAME = os.getenv("CF_SECRET_NAME", "")
@@ -170,7 +173,21 @@ def dns_authority_candidate(node, public_ip, uid, node_capacity, inventory=None)
             "region": region, "capacity": node_capacity}
 
 
-def external_authority_candidate(authority):
+def external_authority_evidence():
+    if not EXTERNAL_AUTHORITY_EVIDENCE_CONFIGMAP:
+        return None
+    try:
+        item = api(f"/api/v1/namespaces/{NAMESPACE}/configmaps/{EXTERNAL_AUTHORITY_EVIDENCE_CONFIGMAP}")
+        value = json.loads(item.get("data", {}).get("quality.json", "{}"))
+        observed = parse_time(value.get("observedAt"))
+        if not observed or time.time() - observed > EXTERNAL_AUTHORITY_EVIDENCE_MAX_AGE:
+            return None
+        return value.get("authorities", {})
+    except (TypeError, ValueError, urllib.error.HTTPError):
+        return None
+
+
+def external_authority_candidate(authority, evidence=None):
     """Admit a non-Kubernetes authority through the same public DNS probes."""
     if not authority.get("enabled", False) or not PARENT_ZONE or not CHILD_ZONES:
         return None
@@ -180,6 +197,21 @@ def external_authority_candidate(authority):
         raise ValueError("external authority address must be a global IPv4 address")
     if not nameserver.endswith(f".{PARENT_ZONE}."):
         raise ValueError("external authority nameserver must be under the parent zone")
+    if evidence is not None:
+        # A public observer validates a representative delegated zone over
+        # both DNS transports. All delegated zones are served by the same
+        # authority process; requiring every zone here would multiply the
+        # external measurement budget without adding path independence.
+        prefix = f"{address}/"
+        ready_protocols = {
+            key.rsplit("/", 1)[-1]
+            for key, result in evidence.items()
+            if key.startswith(prefix) and result.get("ready", False)
+        }
+        if not {"udp", "tcp"}.issubset(ready_protocols):
+            return None
+        return {"uid": f"external:{authority['id']}", "ip": str(address), "legacyNs": nameserver,
+                "region": authority["region"], "capacity": authority.get("capacityMbps", 0)}
     transports = [(str(address), zone, tcp, 6) for zone in CHILD_ZONES for tcp in (False, True)]
     transports += [(str(address), zone, tcp, 1) for zone in ADDRESS_ZONES for tcp in (False, True)]
     transports += [(str(address), name, tcp, 1) for name in REQUIRED_ADDRESS_NAMES for tcp in (False, True)]
@@ -579,8 +611,9 @@ def reconcile():
     existing = {item["metadata"]["name"]: item for item in existing_items
                 if item.get("metadata", {}).get("labels", {}).get(f"{API_GROUP}/managed") == "true"}
     desired_names = set()
+    evidence = external_authority_evidence()
     external_candidates = [candidate for candidate in (
-        external_authority_candidate(authority) for authority in EXTERNAL_AUTHORITIES
+        external_authority_candidate(authority, evidence) for authority in EXTERNAL_AUTHORITIES
     ) if candidate]
     external_by_ip = {item["ip"]: item for item in external_candidates}
     authorities = list(external_candidates)
