@@ -144,3 +144,47 @@ for signed release manifests and immutable package identities.
 - [Contributing](CONTRIBUTING.md)
 - [Security policy and private reporting](SECURITY.md)
 - [Apache-2.0 license](LICENSE)
+
+### Explicit AmongCluster public-ingress references (opt-in)
+
+Existing federated declarations remain compatible. To consume a reviewed
+`ServiceAdvertisement.publicIngress` dynamically, set both exact references in
+`PublicEdge.spec.discovery`, alongside `source: AmongCluster`, `clusterRef`
+(the publisher), `serviceRef` (the exact SPIFFE service identity), and `protocol`:
+
+```yaml
+advertisementRef: {namespace: peering, name: canary, uid: ad-object-uid}
+importedServiceRef: {namespace: peering, name: canary-import, uid: import-object-uid}
+```
+
+Grant read-only access only to reviewed namespaces through
+`federation.readableNamespaces: [peering]`. No cross-namespace list or write access
+is added. The consumer validates object UIDs, publisher/identity/protocol,
+publication TTL, revocation, targeted peer and the import's observed revision.
+It never turns an AmongCluster QUIC gateway endpoint into an HTTPS endpoint.
+
+A valid typed `publicIngress` updates candidate address, TLS SNI, port and probe
+path. Only the matching service hostname is exposed. Changed endpoints clear
+old health; an in-flight response for an earlier endpoint revision cannot qualify
+the replacement. Revocation, expiry, missing references and stale import state
+reject eligibility without the normal transport-failure DNS grace period.
+The same holds when a bound candidate is removed. A control-plane outage cannot
+extend the cached advertisement's explicit expiry.
+
+Explicitly bound candidates must pass fresh Service AF NPA evidence, even when
+compatibility mode is Optional, Shadow or Disabled. Add an explicit
+`discovery.assessmentRef` with `{name, uid, sourceNode, targetId, paddingBytes}`,
+or `assessmentRefs` keyed by authority source-node name. Only the current
+`NODE_NAME` reference is consumed; a single reference must name that same node.
+The subject must match the advertised Service identity and the full scope must
+match endpoint, port, TLS SNI, path and expected size array (including >=2048-byte
+padding). Both host/pod transfer completeness and latency-budget evidence must be
+fresh and successful. Node readiness alone never substitutes for that evidence.
+No missing-source fallback or cross-node borrowing is allowed.
+
+Controlled acceptance uses an isolated hostname: keep endpoint A healthy while
+advertising B, prove B is independently probed, then revoke or expire the source
+while HTTP stays healthy and verify authoritative DNS removes it. Record source
+and import revisions, NPA provenance, endpoint revision and DNS answer/TTL. This
+contract does not claim that legacy declarations already follow advertisement
+changes; migrate their references through a reviewed GitOps change.

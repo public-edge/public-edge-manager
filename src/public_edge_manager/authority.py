@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from .route_snapshot import atomic_write_json, load_private_key, load_public_key, sign_snapshot, verify_snapshot
 from .selection import ScoreModel, score_candidate, stable_rank
+from .federation import resolve as resolve_federation, service_assessment, assess_service
 
 NODE = os.getenv("NODE_NAME", "unknown")
 PROBE_CONNECT_TIMEOUT = float(os.getenv("PROBE_CONNECT_TIMEOUT_SECONDS", "5"))
@@ -349,6 +350,18 @@ def candidates_from_public_edges(service_definitions=None):
             probes[service] = f"https://{probe_host}{definition.get('probePath', '/')}"
         discovery = spec.get("discovery", {})
         federated = discovery.get("source") == "AmongCluster"
+        federation_evidence = None
+        if federated and ("advertisementRef" in discovery or "importedServiceRef" in discovery):
+            federation_evidence = resolve_federation(discovery, kubernetes_get, time.time())
+            if federation_evidence["eligible"]:
+                ingress = federation_evidence["publicIngress"]
+                endpoint = {**endpoint, "type": "PublicIP", "value": ingress["address"], "probeAddress": ingress["address"]}
+                probes = {definition["service"]: f"https://{ingress['hostname']}:{ingress['port']}{ingress['path']}"
+                          for hostname, definition in (SERVICE_DEFINITIONS if service_definitions is None else service_definitions).items()
+                          if hostname.rstrip(".") == ingress["hostname"]}
+        service_evidence = (service_assessment(discovery, federation_evidence, kubernetes_get,
+                                              FABRIC_EVIDENCE_API_GROUP, FABRIC_EVIDENCE_API_VERSION, NODE)
+                            if federation_evidence is not None and federation_evidence["eligible"] else None)
         gateway_path = item.get("status", {}).get("gatewayPath", {})
         protocol_probes = item.get("status", {}).get("protocolProbes", {})
         transport_observed = bool(gateway_path or protocol_probes)
@@ -376,6 +389,10 @@ def candidates_from_public_edges(service_definitions=None):
                                for protocol in ("http", "https")))
                           if transport_observed or not federated else None),
             "federated": federated,
+            "federationEvidence": federation_evidence,
+            "serviceAssessment": service_evidence,
+            "endpointRevision": (hashlib.sha256(json.dumps(federation_evidence.get("publicIngress", {}), sort_keys=True).encode()).hexdigest()
+                                 if federation_evidence is not None else None),
             "federation": discovery if federated else {},
             "externalQuality": item.get("status", {}).get("externalQuality", {}),
             "probes": probes,
@@ -394,6 +411,12 @@ def refresh_candidates():
         return
     # An explicit empty inventory still withdraws all candidates.
     with LOCK:
+        previous = {candidate["id"]: candidate for candidate in CANDIDATES}
+        for candidate in discovered or []:
+            old = previous.get(candidate["id"])
+            if old and (old.get("ip"), old.get("probeIp"), old.get("probes")) != (candidate.get("ip"), candidate.get("probeIp"), candidate.get("probes")):
+                for observations in HEALTH.values():
+                    observations.pop(candidate["id"], None)
         CANDIDATES[:] = discovered or []
         active = {item["id"] for item in CANDIDATES}
         for service in SERVICES.values():
@@ -522,7 +545,18 @@ def parse_timestamp(value):
 
 def fabric_evidence(candidate, now=None):
     """Evaluate cached evidence without assuming an Advanced Fabric release."""
-    if candidate.get("federated"):
+    federation_evidence = candidate.get("federationEvidence")
+    if federation_evidence is not None:
+        expiry = federation_evidence.get("expiresAt", 0)
+        if not federation_evidence.get("eligible") or (time.time() if now is None else now) >= expiry:
+            return {"eligible": False, "mode": "Federated", "state": "Unavailable",
+                    "reason": federation_evidence.get("reason") if not federation_evidence.get("eligible") else "FederationExpired",
+                    "federation": federation_evidence, "pathEvidence": {}}
+    if federation_evidence is not None:
+        return assess_service(candidate.get("federation", {}), federation_evidence,
+                              candidate.get("serviceAssessment"), time.time() if now is None else now, NODE)
+    mode = "Required" if federation_evidence is not None else FABRIC_EVIDENCE_MODE
+    if candidate.get("federated") and federation_evidence is None:
         federation = candidate.get("federation", {})
         if (federation.get("source") == "AmongCluster" and
                 federation.get("clusterRef") and federation.get("serviceRef")):
@@ -532,7 +566,7 @@ def fabric_evidence(candidate, now=None):
                     "serviceRef": federation["serviceRef"], "pathEvidence": {}}
         return {"eligible": False, "mode": "Federated", "state": "Invalid",
                 "reason": "FederatedServiceContractMissing", "pathEvidence": {}}
-    if FABRIC_EVIDENCE_MODE == "Disabled":
+    if mode == "Disabled":
         return {"eligible": True, "mode": "Disabled", "state": "Disabled"}
     with LOCK:
         available = FABRIC_API_AVAILABLE
@@ -540,23 +574,23 @@ def fabric_evidence(candidate, now=None):
         node_name = candidate.get("nodeName", "")
         node_ready = FABRIC_NODE_READINESS.get(node_name)
         item = FABRIC_ASSESSMENTS.get(node_name)
-    if FABRIC_API_OUTAGE and not available and item is not None:
+    if FABRIC_API_OUTAGE and not available and item is not None and federation_evidence is None:
         # A verified candidate keeps serving through a control-plane outage.
         # ranked() still requires a fresh, successful public service probe.
-        return {"eligible": True, "mode": FABRIC_EVIDENCE_MODE,
+        return {"eligible": True, "mode": mode,
                 "state": "ProviderUnavailable", "reason": "ProviderUnavailable",
                 "degraded": True, "pathEvidence": {}}
     if FABRIC_REQUIRE_NODE_READY and (not node_api_available or node_ready is not True):
         reason = "NodeNotReady" if node_api_available and node_ready is False else "NodeReadinessUnavailable"
-        eligible = FABRIC_EVIDENCE_MODE in ("Shadow", "Optional") and not node_api_available
-        return {"eligible": True if FABRIC_EVIDENCE_MODE == "Shadow" else eligible,
-                "wouldReject": True, "mode": FABRIC_EVIDENCE_MODE,
+        eligible = mode in ("Shadow", "Optional") and not node_api_available
+        return {"eligible": True if mode == "Shadow" else eligible,
+                "wouldReject": True, "mode": mode,
                 "state": "Unavailable", "reason": reason, "nodeReady": node_ready,
                 "pathEvidence": {}}
     if not item:
-        eligible = FABRIC_EVIDENCE_MODE in ("Shadow", "Optional")
+        eligible = mode in ("Shadow", "Optional")
         reason = "AssessmentNotFound" if available else "ProviderUnavailable"
-        return {"eligible": eligible, "mode": FABRIC_EVIDENCE_MODE,
+        return {"eligible": eligible, "mode": mode,
                 "state": "Unavailable", "reason": reason, "pathEvidence": {}}
     status = item.get("status", {})
     state = status.get("state", "Unknown")
@@ -582,11 +616,12 @@ def fabric_evidence(candidate, now=None):
     if not fresh:
         reason = "EvidenceExpired" if valid_until is not None else "ValidityMissing"
     return {
-        "eligible": True if FABRIC_EVIDENCE_MODE == "Shadow" else evidence_eligible,
+        "eligible": True if mode == "Shadow" else evidence_eligible,
         "wouldReject": not evidence_eligible,
-        "mode": FABRIC_EVIDENCE_MODE,
+        "mode": mode,
         "nodeReady": node_ready if FABRIC_REQUIRE_NODE_READY else None,
         "assessment": item.get("metadata", {}).get("name", ""),
+        "federation": federation_evidence,
         "assessmentRef": {
             **{key: item.get("metadata", {})[key]
                for key in ("name", "uid", "generation", "resourceVersion")
@@ -653,14 +688,14 @@ def probe(candidate, service, url):
             raise ValueError("unsupported probe trust source")
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         probe_ip = candidate.get("probeIp", candidate.get("localIp", candidate["ip"]))
-        sock = socket.create_connection((probe_ip, 443), timeout=PROBE_CONNECT_TIMEOUT)
+        sock = socket.create_connection((probe_ip, parsed.port or 443), timeout=PROBE_CONNECT_TIMEOUT)
         tls = context.wrap_socket(sock, server_hostname=parsed.hostname)
         connection = http.client.HTTPConnection(parsed.hostname, timeout=PROBE_RESPONSE_TIMEOUT)
         connection.sock = tls
         path = parsed.path or "/"
         if parsed.query:
             path += "?" + parsed.query
-        connection.request("GET", path, headers={"Host": parsed.hostname, "User-Agent": USER_AGENT})
+        connection.request("GET", path, headers={"Host": parsed.netloc, "User-Agent": USER_AGENT})
         response = connection.getresponse()
         status = response.status
         response.read(4096)
@@ -694,6 +729,7 @@ def probe(candidate, service, url):
             "failures": failures,
             "observedAt": int(time.time()),
             "failure": failure,
+            "endpointRevision": candidate.get("endpointRevision"),
         }
 
 
@@ -923,6 +959,8 @@ def ranked(service, request_area=None):
         quality_ready = quality_fresh and quality.get("ready") is True
         quality_eligible = (GLOBALPING_QUALITY_MODE != "Required" or quality_ready)
         fresh_probe = probe_fresh(observed)
+        if candidate.get("federationEvidence") is not None:
+            fresh_probe = fresh_probe and observed.get("endpointRevision") == candidate.get("endpointRevision")
         # Edge transport and backend health are separate.  A reachable edge
         # remains in DNS when a service has no ready Pod; Gateway API then
         # terminates that request with an explicit 503 instead of DNS NODATA.
@@ -930,6 +968,8 @@ def ranked(service, request_area=None):
         if edge_ready is None:  # Compatibility for externally managed v1alpha1 objects.
             edge_ready = bool(observed.get("ready")) and fresh_probe and gate_ready
         ready = bool(edge_ready) and network_evidence["eligible"] and quality_eligible
+        if candidate.get("federationEvidence") is not None:
+            ready = ready and bool(observed.get("ready")) and fresh_probe
         score = 0
         if ready:
             area = request_area or AREA
@@ -969,6 +1009,10 @@ def ranked(service, request_area=None):
             "gatewayVip": candidate.get("gatewayVip", ""),
             "forwarding": candidate.get("forwarding", {"mode": "DirectGateway"}),
             "paths": candidate.get("paths", {}).get(service, []),
+            "federationBound": candidate.get("federationEvidence") is not None,
+            "endpointRevision": candidate.get("endpointRevision"),
+            "contractRejected": candidate.get("federationEvidence") is not None and (
+                not network_evidence["eligible"] or observed.get("endpointRevision") != candidate.get("endpointRevision")),
             "score": score, "state": "ready" if ready else "unavailable",
             "statusCode": observed.get("statusCode", 0), "latencyMs": observed.get("latencyMs", 0),
             "observedAt": observed.get("observedAt", 0),
@@ -1025,6 +1069,17 @@ def stable_selected(service, candidates, request_area=None, timestamp=None):
             return selected
 
         current = by_id.get(state["selected"])
+        if ((current and current.get("contractRejected")) or
+                (current is None and state.get("snapshot", {}).get("federationBound"))):
+            # An explicit source withdrawal, expired contract, or changed endpoint
+            # is not a transient probe failure. Never retain its old DNS address.
+            if not ready:
+                state.update(unavailableAt=timestamp, hardFailure=True, pending=None, pendingAt=None)
+                return None
+            selected = dict(ready[0])
+            state.update(selected=selected["id"], snapshot=selected, selectedAt=timestamp,
+                         unavailableAt=None, pending=None, pendingAt=None, hardFailure=False)
+            return selected
         if (current and current["state"] == "ready"
                 and current.get("serviceBackendReady", True)):
             state.update(snapshot=dict(current), unavailableAt=None, hardFailure=False)
@@ -1337,6 +1392,13 @@ def refused_response(query):
 def service_address_records(name, service, request_area=None):
     selected = stable_selected(service, ranked(service, request_area), request_area)
     if not selected:
+        with LOCK:
+            bound = any(candidate.get("federationEvidence") is not None and
+                        service in candidate.get("probes", {}) for candidate in CANDIDATES)
+            bound = bound or any(key[0] == service and value.get("snapshot", {}).get("federationBound")
+                                 for key, value in SELECTIONS.items())
+        if bound:
+            return []  # A literal fallback must not resurrect withdrawn ingress.
         selected = default_candidate(request_area or ROUTING_POLICY.get("defaultRegion", "default"))
     if not selected:
         return []

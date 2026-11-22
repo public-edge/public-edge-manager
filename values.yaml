@@ -245,3 +245,7 @@ service:
 resources:
   requests: {cpu: 20m, memory: 32Mi}
   limits: {cpu: 250m, memory: 128Mi}
+
+# Only these reviewed namespaces receive read-only AmongCluster object access.
+federation:
+  readableNamespaces: []
