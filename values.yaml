@@ -77,6 +77,10 @@ redirector:
 
 workload:
   hostNetwork: true
+  # Optional stable runtime hosts. When set, DNS serving is deliberately
+  # decoupled from the controller-owned authority health label so an external
+  # observer outage cannot scale the in-cluster DNS runtime to zero.
+  nodeNames: []
   # Leave one rollout slot for a pod wedged on an unreachable/retired node,
   # while still retaining at least one authority on a three-node deployment.
   maxUnavailable: 2

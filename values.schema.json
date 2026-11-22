@@ -125,6 +125,8 @@
       "type": "object",
       "properties": {
         "hostNetwork": { "type": "boolean" },
+        "nodeNames": {"type": "array", "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}},
         "maxUnavailable": { "type": "integer", "minimum": 1 },
         "kubernetesApiFallbackUrls": {"type": "array", "uniqueItems": true,
           "items": {"type": "string", "pattern": "^https://[^/]+:[0-9]+$"}},
