@@ -1,5 +1,8 @@
 # Public Edge Manager
 
+For per-cluster automatic Service capability publication, see
+[local ingress publication](docs/local-ingress-publication.md).
+
 [简体中文](README.zh-CN.md)
 
 [![CI](https://github.com/public-edge/public-edge-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/public-edge/public-edge-manager/actions/workflows/ci.yml)

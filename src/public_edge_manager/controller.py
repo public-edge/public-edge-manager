@@ -20,6 +20,7 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from public_edge_manager.ingress_publication import publish as publish_local_ingress
 
 
 SA = "/var/run/secrets/kubernetes.io/serviceaccount"
@@ -68,6 +69,10 @@ CF_SECRET_NAMESPACE = os.getenv("CF_SECRET_NAMESPACE", "")
 CF_SECRET_NAME = os.getenv("CF_SECRET_NAME", "")
 CF_SECRET_KEY = os.getenv("CF_SECRET_KEY", "CF_API_TOKEN")
 LEASE_NAME = os.getenv("LEASE_NAME", "public-edge-discovery")
+LOCAL_CLUSTER_REF = os.getenv("LOCAL_CLUSTER_REF", "")
+LOCAL_INGRESS_SOURCES = json.loads(os.getenv("LOCAL_INGRESS_SOURCES_JSON", "[]"))
+LOCAL_INGRESS_MAX_AGE = float(os.getenv("LOCAL_INGRESS_MAX_AGE_SECONDS", "30"))
+LOCAL_INGRESS_VALIDITY = max(90, 4 * INTERVAL + LOCAL_INGRESS_MAX_AGE)
 
 
 def now_rfc3339():
@@ -650,6 +655,17 @@ def reconcile():
         raise RuntimeError("duplicate public DNS nameserver among authorities")
     for name in set(existing) - desired_names:
         api(f"/apis/{API_GROUP}/{API_VERSION}/publicedges/{name}", "DELETE")
+    if LOCAL_INGRESS_SOURCES:
+        try:
+            current = api(f"/apis/{API_GROUP}/{API_VERSION}/publicedges").get("items", [])
+            # Use the post-reconcile set: a withdrawn local edge cannot be exported
+            # for another cycle from the earlier discovery snapshot.
+            local = [edge for edge in current if edge.get('metadata', {}).get('name') in desired_names]
+            outcomes = publish_local_ingress(LOCAL_INGRESS_SOURCES, local, LOCAL_CLUSTER_REF,
+                                             time.time(), LOCAL_INGRESS_MAX_AGE, LOCAL_INGRESS_VALIDITY, api, patch)
+            print(json.dumps({'localIngressPublication': outcomes}), flush=True)
+        except Exception as error:
+            print(json.dumps({'localIngressPublication': 'Error', 'reason': type(error).__name__}), flush=True)
     # DNS authority is a low-bandwidth role. Keep election stable and spread
     # regions without borrowing Public Edge ingress capacity rankings.
     ordered = sorted(authorities, key=lambda item: item["uid"])

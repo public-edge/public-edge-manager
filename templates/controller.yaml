@@ -47,6 +47,9 @@ spec:
             - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
             - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
             - {name: DISCOVERY_INTERVAL_SECONDS, value: {{ .Values.discovery.intervalSeconds | quote }}}
+            - {name: LOCAL_CLUSTER_REF, value: {{ .Values.federation.clusterRef | quote }}}
+            - {name: LOCAL_INGRESS_SOURCES_JSON, value: {{ .Values.federation.sourceServices | toJson | quote }}}
+            - {name: LOCAL_INGRESS_MAX_AGE_SECONDS, value: {{ max 30 (add .Values.probe.connectTimeoutSeconds .Values.probe.responseTimeoutSeconds (mul 2 .Values.probe.intervalSeconds)) | quote }}}
             - {name: DISCOVERY_PROBE_TIMEOUT_SECONDS, value: {{ .Values.discovery.probeTimeoutSeconds | quote }}}
             - {name: DEFAULT_CAPACITY_MBPS, value: {{ .Values.discovery.defaultCapacityMbps | quote }}}
             - {name: MINIMUM_CAPACITY_MBPS, value: {{ .Values.discovery.minimumCapacityMbps | quote }}}

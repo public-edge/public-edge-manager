@@ -249,3 +249,6 @@ resources:
 # Only these reviewed namespaces receive read-only AmongCluster object access.
 federation:
   readableNamespaces: []
+  clusterRef: ""
+  # Existing local Services only. AmongCluster owns their signed publication.
+  sourceServices: []
