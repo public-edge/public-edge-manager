@@ -1,5 +1,8 @@
 # Public Edge Manager
 
+For per-cluster automatic Service capability publication, see
+[local ingress publication](docs/local-ingress-publication.md).
+
 [简体中文](README.zh-CN.md)
 
 [![CI](https://github.com/public-edge/public-edge-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/public-edge/public-edge-manager/actions/workflows/ci.yml)
@@ -44,7 +47,7 @@ cp examples/values-example.yaml values-production.yaml
 
 helm install public-edge-manager \
   oci://ghcr.io/public-edge/charts/public-edge-manager \
-  --version 0.8.14 \
+  --version 0.8.15 \
   --namespace public-edge-system --create-namespace \
   --values values-production.yaml
 ```

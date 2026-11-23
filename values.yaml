@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/public-edge/public-edge-manager
-  tag: "0.8.14"
+  tag: "0.8.15"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -249,3 +249,6 @@ resources:
 # Only these reviewed namespaces receive read-only AmongCluster object access.
 federation:
   readableNamespaces: []
+  clusterRef: ""
+  # Existing local Services only. AmongCluster owns their signed publication.
+  sourceServices: []
